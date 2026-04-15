@@ -531,6 +531,26 @@ impl<'de> Deserialize<'de> for PassFilenames {
 }
 
 /// Common hook options.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub(crate) enum SarifConfig {
+    /// Additional CLI flags for SARIF support.
+    Flags {
+        /// Arguments appended to the hook invocation for SARIF output.
+        args: Vec<String>,
+    },
+    /// Invoke an external adapter binary for SARIF support.
+    Adapter {
+        /// Adapter executable path.
+        binary: String,
+        /// Optional arguments passed to the adapter executable.
+        #[serde(default)]
+        args: Vec<String>,
+    },
+}
+
+/// Common hook options.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub(crate) struct HookOptions {
@@ -554,6 +574,13 @@ pub(crate) struct HookOptions {
     pub additional_dependencies: Option<Vec<String>>,
     /// Additional arguments to pass to the hook.
     pub args: Option<Vec<String>>,
+    /// SARIF output integration for this hook.
+    ///
+    /// Precedence:
+    /// 1. Hook-level `sarif` configuration.
+    /// 2. Built-in adaptor registry.
+    /// 3. Fallback: skip SARIF and emit a warning.
+    pub sarif: Option<SarifConfig>,
     /// Environment variables to set for the hook.
     pub env: Option<FxHashMap<String, String>>,
     /// This hook will run even if there are no matching files.
@@ -612,6 +639,7 @@ impl HookOptions {
             exclude_types,
             additional_dependencies,
             args,
+            sarif,
             always_run,
             fail_fast,
             pass_filenames,

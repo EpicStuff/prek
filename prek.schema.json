@@ -255,6 +255,10 @@
             "type": "string"
           }
         },
+        "sarif": {
+          "description": "SARIF output integration for this hook.\n\nPrecedence:\n1. Hook-level `sarif` configuration.\n2. Built-in adaptor registry.\n3. Fallback: skip SARIF and emit a warning.",
+          "$ref": "#/definitions/SarifConfig"
+        },
         "env": {
           "description": "Environment variables to set for the hook.",
           "type": "object",
@@ -368,6 +372,48 @@
           },
           "required": [
             "glob"
+          ]
+        }
+      ]
+    },
+    "SarifConfig": {
+      "description": "Common hook options.",
+      "anyOf": [
+        {
+          "description": "Additional CLI flags for SARIF support.",
+          "type": "object",
+          "properties": {
+            "args": {
+              "description": "Arguments appended to the hook invocation for SARIF output.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "args"
+          ]
+        },
+        {
+          "description": "Invoke an external adapter binary for SARIF support.",
+          "type": "object",
+          "properties": {
+            "binary": {
+              "description": "Adapter executable path.",
+              "type": "string"
+            },
+            "args": {
+              "description": "Optional arguments passed to the adapter executable.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            }
+          },
+          "required": [
+            "binary"
           ]
         }
       ]
@@ -495,6 +541,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "sarif": {
+          "description": "SARIF output integration for this hook.\n\nPrecedence:\n1. Hook-level `sarif` configuration.\n2. Built-in adaptor registry.\n3. Fallback: skip SARIF and emit a warning.",
+          "$ref": "#/definitions/SarifConfig"
         },
         "env": {
           "description": "Environment variables to set for the hook.",
@@ -653,6 +703,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "sarif": {
+          "description": "SARIF output integration for this hook.\n\nPrecedence:\n1. Hook-level `sarif` configuration.\n2. Built-in adaptor registry.\n3. Fallback: skip SARIF and emit a warning.",
+          "$ref": "#/definitions/SarifConfig"
         },
         "env": {
           "description": "Environment variables to set for the hook.",
@@ -816,6 +870,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "sarif": {
+          "description": "SARIF output integration for this hook.\n\nPrecedence:\n1. Hook-level `sarif` configuration.\n2. Built-in adaptor registry.\n3. Fallback: skip SARIF and emit a warning.",
+          "$ref": "#/definitions/SarifConfig"
         },
         "env": {
           "description": "Environment variables to set for the hook.",
