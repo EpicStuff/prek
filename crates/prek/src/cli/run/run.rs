@@ -20,7 +20,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::cli::reporter::{HookInitReporter, HookInstallReporter, HookRunReporter};
 use crate::cli::run::keeper::WorkTreeKeeper;
 use crate::cli::run::{CollectOptions, FileFilter, Selectors, collect_files};
-use crate::cli::{ExitStatus, RunExtraArgs};
+use crate::cli::{ExitStatus, RunExtraArgs, RunOutputFormat};
 use crate::config::{Language, PassFilenames, Stage};
 use crate::fs::CWD;
 use crate::git::GIT_ROOT;
@@ -29,6 +29,10 @@ use crate::printer::Printer;
 use crate::run::{CONCURRENCY, USE_COLOR};
 use crate::store::Store;
 use crate::workspace::{Project, Workspace};
+use crate::sarif::{
+    SarifReport, SarifStrategy, resolve_adapter_binary, resolve_strategy, run_adapter,
+    with_native_flags,
+};
 use crate::{git, warn_user};
 
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
@@ -47,6 +51,7 @@ pub(crate) async fn run(
     show_diff_on_failure: bool,
     fail_fast: Option<bool>,
     dry_run: bool,
+    output_format: RunOutputFormat,
     refresh: bool,
     extra_args: RunExtraArgs,
     verbose: bool,
@@ -208,6 +213,7 @@ pub(crate) async fn run(
         show_diff_on_failure,
         fail_fast,
         dry_run,
+        output_format,
         verbose,
         printer,
     )
@@ -580,6 +586,7 @@ async fn run_hooks(
     show_diff_on_failure: bool,
     fail_fast: Option<bool>,
     dry_run: bool,
+    output_format: RunOutputFormat,
     verbose: bool,
     printer: Printer,
 ) -> Result<ExitStatus> {
@@ -604,6 +611,7 @@ async fn run_hooks(
     let mut first = true;
     let mut file_modified = false;
     let mut has_unimplemented = false;
+    let mut sarif_report = SarifReport::default();
 
     // Track files that have been consumed by orphan projects.
     let mut consumed_files = FxHashSet::default();
@@ -623,7 +631,7 @@ async fn run_hooks(
         // If two hooks have the same priority, preserve their original order from the config.
         hooks.sort_by(|a, b| a.priority.cmp(&b.priority).then(a.idx.cmp(&b.idx)));
 
-        if projects_len > 1 || !project.is_root() {
+        if output_format == RunOutputFormat::Text && (projects_len > 1 || !project.is_root()) {
             reporter.suspend(|| {
                 writeln!(
                     status_printer.printer().stdout(),
@@ -641,7 +649,8 @@ async fn run_hooks(
         for group_range in PriorityGroupRanges::new(&hooks) {
             let group_hooks = hooks[group_range].to_vec();
             let mut group_results =
-                run_priority_group(group_hooks, &filter, store, dry_run, &reporter).await?;
+                run_priority_group(group_hooks, &filter, store, dry_run, output_format, &reporter)
+                    .await?;
 
             // Print results in a stable order (same order as config within the project).
             group_results.sort_unstable_by(|a, b| a.hook.idx.cmp(&b.hook.idx));
@@ -661,15 +670,28 @@ async fn run_hooks(
                 file_modified = true;
             }
 
-            reporter.suspend(|| {
-                render_priority_group(
-                    printer,
-                    &status_printer,
-                    &group_results,
-                    verbose,
-                    group_modified_files,
-                )
-            })?;
+            if output_format == RunOutputFormat::Text {
+                reporter.suspend(|| {
+                    render_priority_group(
+                        printer,
+                        &status_printer,
+                        &group_results,
+                        verbose,
+                        group_modified_files,
+                    )
+                })?;
+            } else {
+                for result in &group_results {
+                    if !result.output.trim_ascii().is_empty()
+                        && let Err(err) = sarif_report.push_json(&result.output)
+                    {
+                        warn_user!(
+                            "Failed to parse SARIF from hook `{}`: {err}",
+                            result.hook.id
+                        );
+                    }
+                }
+            }
 
             let hook_fail_fast = apply_group_outcome(
                 &group_results,
@@ -693,7 +715,10 @@ async fn run_hooks(
         );
     }
 
-    if !success && show_diff_on_failure && file_modified {
+    if output_format == RunOutputFormat::Sarif {
+        let rendered = sarif_report.to_pretty_json()?;
+        writeln!(printer.stdout_important(), "{rendered}")?;
+    } else if !success && show_diff_on_failure && file_modified {
         if EnvVars::is_under_ci() {
             writeln!(
                 printer.stdout(),
@@ -771,6 +796,7 @@ async fn run_priority_group(
     filter: &FileFilter<'_>,
     store: &Store,
     dry_run: bool,
+    output_format: RunOutputFormat,
     reporter: &HookRunReporter,
 ) -> Result<Vec<RunResult>> {
     debug!(
@@ -783,7 +809,7 @@ async fn run_priority_group(
     let mut results = futures::stream::iter(
         group_hooks
             .into_iter()
-            .map(|hook| run_hook(hook, filter, store, dry_run, reporter)),
+            .map(|hook| run_hook(hook, filter, store, dry_run, output_format, reporter)),
     )
     .buffer_unordered(*CONCURRENCY);
 
@@ -1002,6 +1028,7 @@ async fn run_hook(
     filter: &FileFilter<'_>,
     store: &Store,
     dry_run: bool,
+    output_format: RunOutputFormat,
     reporter: &HookRunReporter,
 ) -> Result<RunResult> {
     let mut filenames = filter.for_hook(&hook);
@@ -1027,6 +1054,14 @@ async fn run_hook(
         PassFilenames::None => vec![],
     };
 
+    if output_format == RunOutputFormat::Sarif && !dry_run && resolve_strategy(&hook).is_none() {
+        warn_user!(
+            "Skipping hook `{}` because no SARIF adaptor is built in or configured.",
+            hook.id
+        );
+        return Ok(RunResult::from_status(hook, RunStatus::DryRun));
+    }
+
     let (exit_status, hook_output) = if dry_run {
         let mut output = Vec::new();
         if !filenames.is_empty() {
@@ -1042,10 +1077,30 @@ async fn run_hook(
         }
         (0, output)
     } else {
-        hook.language
-            .run(&hook, &filenames, store, reporter)
+        let mut run_hook = hook.clone();
+        let mut strategy = None;
+        if output_format == RunOutputFormat::Sarif {
+            strategy = resolve_strategy(&hook);
+            if let Some(SarifStrategy::NativeFlags(flags)) = &strategy {
+                run_hook = with_native_flags(&hook, flags);
+            }
+        }
+
+        let (status, output) = run_hook
+            .language
+            .run(&run_hook, &filenames, store, reporter)
             .await
-            .with_context(|| format!("Failed to run hook `{hook}`"))?
+            .with_context(|| format!("Failed to run hook `{run_hook}`"))?;
+
+        if let Some(SarifStrategy::Adapter { binary, args }) = strategy {
+            let binary = resolve_adapter_binary(&hook, &binary);
+            let adapted = run_adapter(&binary, &args, &output)
+                .await
+                .with_context(|| format!("Failed to convert output to SARIF for hook `{hook}`"))?;
+            (status, adapted)
+        } else {
+            (status, output)
+        }
     };
 
     let duration = start.elapsed();

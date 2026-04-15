@@ -46,6 +46,7 @@ mod profiler;
 #[cfg(unix)]
 mod resource_limit;
 mod run;
+mod sarif;
 #[cfg(feature = "schemars")]
 mod schema;
 mod store;
@@ -298,6 +299,7 @@ async fn run(cli: Cli) -> Result<ExitStatus> {
                 args.show_diff_on_failure,
                 flag(args.fail_fast, args.no_fail_fast),
                 args.dry_run,
+                args.output_format,
                 cli.globals.refresh,
                 args.extra,
                 cli.globals.verbose > 0,

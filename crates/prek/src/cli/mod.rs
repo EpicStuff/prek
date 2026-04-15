@@ -548,6 +548,10 @@ pub(crate) struct RunArgs {
     #[arg(long)]
     pub(crate) dry_run: bool,
 
+    /// The output format.
+    #[arg(long, value_enum, default_value_t = RunOutputFormat::Text)]
+    pub(crate) output_format: RunOutputFormat,
+
     #[command(flatten)]
     pub(crate) extra: RunExtraArgs,
 }
@@ -579,6 +583,14 @@ pub(crate) enum IdentifyOutputFormat {
     #[default]
     Text,
     Json,
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub(crate) enum RunOutputFormat {
+    #[default]
+    Text,
+    Sarif,
 }
 
 #[derive(Debug, Clone, Default, Args)]

@@ -586,6 +586,10 @@ pub(crate) struct HookOptions {
     /// The minimum version of prek required to run this hook.
     #[serde(deserialize_with = "deserialize_and_validate_minimum_version", default)]
     pub minimum_prek_version: Option<String>,
+    /// SARIF adapter configuration for this hook.
+    ///
+    /// Used when running `prek run --output-format sarif`.
+    pub sarif: Option<SarifConfig>,
 
     #[serde(skip_serializing, flatten)]
     pub _unused_keys: BTreeMap<String, serde_json::Value>,
@@ -622,6 +626,7 @@ impl HookOptions {
             stages,
             verbose,
             minimum_prek_version,
+            sarif,
         );
 
         // Merge environment variables.
@@ -633,6 +638,20 @@ impl HookOptions {
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "type")]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+pub(crate) enum SarifConfig {
+    /// Add these arguments to the hook command to request SARIF output.
+    Flags { args: Vec<String> },
+    /// Run an external adapter binary to transform hook output into SARIF.
+    Adapter {
+        binary: String,
+        #[serde(default)]
+        args: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]
