@@ -9,6 +9,10 @@ use tokio::io::AsyncWriteExt;
 use crate::config::SarifConfig;
 use crate::hook::{Hook, InstalledHook};
 
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/embedded_adaptors.rs"));
+}
+
 #[derive(Debug, Clone)]
 pub(crate) enum SarifStrategy {
     NativeFlags(Vec<String>),
@@ -66,7 +70,7 @@ fn resolve_adaptor_from_folder(hook: &Hook) -> Result<Option<SarifStrategy>> {
     let nim = adaptor_dir.join(format!("{}.nim", hook.id));
     if nim.is_file() {
         return Ok(Some(SarifStrategy::Adapter {
-            binary: nim.to_string_lossy().to_string(),
+            binary: format!("embedded://{}", hook.id),
             args: vec![],
         }));
     }
@@ -79,6 +83,14 @@ fn strategy_from_adaptor_yaml(adaptor: AdaptorYaml) -> Result<SarifStrategy> {
         return Ok(SarifStrategy::NativeFlags(adaptor.flags));
     }
     if let Some(binary) = adaptor.binary {
+        if binary.ends_with(".nim")
+            && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
+        {
+            return Ok(SarifStrategy::Adapter {
+                binary: format!("embedded://{stem}"),
+                args: adaptor.args,
+            });
+        }
         return Ok(SarifStrategy::Adapter {
             binary,
             args: adaptor.args,
@@ -106,7 +118,8 @@ pub(crate) fn with_native_flags(hook: &InstalledHook, flags: &[String]) -> Insta
 }
 
 pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> Result<Vec<u8>> {
-    let mut cmd = tokio::process::Command::new(binary);
+    let binary = materialize_embedded_adaptor(binary)?;
+    let mut cmd = tokio::process::Command::new(&binary);
     cmd.args(args);
     cmd.stdin(std::process::Stdio::piped());
     cmd.stdout(std::process::Stdio::piped());
@@ -124,6 +137,35 @@ pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> 
         );
     }
     Ok(output.stdout)
+}
+
+fn materialize_embedded_adaptor(binary: &str) -> Result<String> {
+    let Some(name) = binary.strip_prefix("embedded://") else {
+        return Ok(binary.to_string());
+    };
+
+    let (file_name, bytes) = embedded::embedded_adaptor(name)
+        .with_context(|| format!("Embedded adaptor `{name}` was not found in this build"))?;
+
+    let dir = std::env::temp_dir().join("prek-adaptors");
+    fs_err::create_dir_all(&dir).context("Failed to create temporary adaptor directory")?;
+    let path = dir.join(file_name);
+    if !path.exists() {
+        fs_err::write(&path, bytes).with_context(|| {
+            format!(
+                "Failed to write embedded adaptor `{name}` to temporary path `{}`",
+                path.display()
+            )
+        })?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs_err::metadata(&path)?.permissions();
+            perms.set_mode(0o755);
+            fs_err::set_permissions(&path, perms)?;
+        }
+    }
+    Ok(path.to_string_lossy().to_string())
 }
 
 #[derive(Debug, Serialize)]

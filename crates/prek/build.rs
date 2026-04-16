@@ -23,6 +23,7 @@ SOFTWARE.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::{env, fmt::Write as _};
 
 use fs_err as fs;
 
@@ -38,6 +39,7 @@ fn main() {
         .to_path_buf();
 
     commit_info(&workspace_root);
+    build_embedded_adaptors(&workspace_root);
 }
 
 fn commit_info(workspace_root: &Path) {
@@ -126,4 +128,85 @@ fn git_head(git_dir: &Path) -> Option<PathBuf> {
     }
     let worktree_path = worktree_path.trim();
     Some(PathBuf::from(worktree_path))
+}
+
+fn build_embedded_adaptors(workspace_root: &Path) {
+    let adaptors_dir = workspace_root.join("adaptors");
+    println!("cargo:rerun-if-changed={}", adaptors_dir.display());
+
+    if !adaptors_dir.exists() {
+        return;
+    }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set"));
+    let compiled_dir = out_dir.join("embedded_adaptors");
+    fs::create_dir_all(&compiled_dir).expect("Failed to create embedded adaptor output directory");
+
+    let mut entries = Vec::<(String, String, PathBuf)>::new();
+    let read = fs::read_dir(&adaptors_dir).expect("Failed to read adaptors directory");
+    for entry in read.flatten() {
+        let path = entry.path();
+        let is_nim = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("nim"));
+        if !is_nim {
+            continue;
+        }
+
+        let stem = path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .expect("Adaptor file name should be valid UTF-8")
+            .to_string();
+        println!("cargo:rerun-if-changed={}", path.display());
+
+        let mut output_name = stem.clone();
+        if cfg!(windows) {
+            output_name.push_str(".exe");
+        }
+        let output_path = compiled_dir.join(&output_name);
+        compile_nim_adaptor(&path, &output_path);
+        entries.push((stem, output_name, output_path));
+    }
+
+    generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries);
+}
+
+fn compile_nim_adaptor(source: &Path, output: &Path) {
+    let status = Command::new("nim")
+        .arg("c")
+        .arg("-d:release")
+        .arg("--opt:size")
+        .arg(format!("--out:{}", output.display()))
+        .arg(source)
+        .status();
+    match status {
+        Ok(status) if status.success() => {}
+        Ok(status) => panic!(
+            "Failed to compile Nim adaptor `{}`: nim exited with {status}",
+            source.display()
+        ),
+        Err(err) => panic!(
+            "Failed to invoke Nim compiler while compiling adaptor `{}`: {err}",
+            source.display()
+        ),
+    }
+}
+
+fn generate_embedded_adaptors_rs(path: &Path, entries: &[(String, String, PathBuf)]) {
+    let mut content = String::new();
+    content.push_str("pub(crate) fn embedded_adaptor(name: &str) -> Option<(&'static str, &'static [u8])> {\n");
+    content.push_str("    match name {\n");
+    for (name, output_name, output_path) in entries {
+        let _ = writeln!(
+            content,
+            "        {name:?} => Some(({output_name:?}, include_bytes!({:?}))),",
+            output_path.display().to_string()
+        );
+    }
+    content.push_str("        _ => None,\n");
+    content.push_str("    }\n");
+    content.push_str("}\n");
+    fs::write(path, content).expect("Failed to write embedded adaptor metadata");
 }
