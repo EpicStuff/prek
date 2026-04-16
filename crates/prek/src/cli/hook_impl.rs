@@ -12,7 +12,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use prek_consts::env_vars::EnvVars;
 
-use crate::cli::{self, ExitStatus, RunArgs, flag};
+use crate::cli::{self, ExitStatus, RunArgs, RunOutputFormat, flag};
 use crate::config::HookType;
 use crate::fs::CWD;
 use crate::git::GIT_ROOT;
@@ -133,6 +133,7 @@ pub(crate) async fn hook_impl(
         false,
         flag(run_args.fail_fast, run_args.no_fail_fast),
         false,
+        RunOutputFormat::Text,
         false,
         run_args.extra,
         false,

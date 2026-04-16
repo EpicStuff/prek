@@ -16,7 +16,7 @@ use tracing::trace;
 
 use crate::config::{
     self, BuiltinHook, Config, FilePattern, HookOptions, Language, LocalHook, ManifestHook,
-    MetaHook, PassFilenames, RemoteHook, Stages, read_manifest,
+    MetaHook, PassFilenames, RemoteHook, SarifConfig, Stages, read_manifest,
 };
 use crate::languages::version::LanguageRequest;
 use crate::languages::{extract_metadata, resolve_command};
@@ -382,6 +382,7 @@ impl HookBuilder {
             description: options.description,
             log_file: options.log_file,
             minimum_prek_version: options.minimum_prek_version,
+            sarif: options.sarif,
         };
 
         if let Err(err) = extract_metadata(&mut hook).await {
@@ -469,6 +470,7 @@ pub(crate) struct Hook {
     pub stages: Stages,
     pub verbose: bool,
     pub minimum_prek_version: Option<String>,
+    pub sarif: Option<SarifConfig>,
     pub priority: u32,
 }
 

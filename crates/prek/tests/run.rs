@@ -153,6 +153,101 @@ fn run_in_non_git_repo() {
 }
 
 #[test]
+fn run_sarif_with_config_adapter() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: sarif-json
+                name: sarif-json
+                entry: python3 -c "import json; print(json.dumps({'runs':[{'tool':{'driver':{'name':'demo'}},'results':[]}]}))"
+                language: system
+                pass_filenames: false
+                always_run: true
+                sarif:
+                  type: adapter
+                  binary: cat
+    "#});
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    {
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [
+        {
+          "tool": {
+            "driver": {
+              "name": "demo"
+            }
+          },
+          "results": []
+        }
+      ]
+    }
+
+    ----- stderr -----
+    "#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn run_sarif_skips_hook_without_adapter() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: no-sarif
+                name: no-sarif
+                entry: python3 -c "print('hello')"
+                language: system
+                pass_filenames: false
+                always_run: true
+    "#});
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    {
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": []
+    }
+
+    ----- stderr -----
+    warning: Skipping hook `no-sarif` because no SARIF adaptor is configured and no embedded adaptor matched this hook id.
+    "#
+    );
+
+    Ok(())
+}
+
+#[test]
 fn invalid_config() {
     let context = TestContext::new();
     context.init_project();

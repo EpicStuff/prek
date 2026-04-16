@@ -18,3 +18,5 @@ site/
 
 # profiling flamegraphs
 *.flamegraph.svg
+
+test/

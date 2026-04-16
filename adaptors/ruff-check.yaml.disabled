@@ -1,0 +1,3 @@
+flags:
+  - --output-format
+  - sarif
