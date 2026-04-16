@@ -30,8 +30,7 @@ use crate::run::{CONCURRENCY, USE_COLOR};
 use crate::store::Store;
 use crate::workspace::{Project, Workspace};
 use crate::sarif::{
-    SarifReport, SarifStrategy, resolve_adapter_binary, resolve_strategy, run_adapter,
-    with_native_flags,
+    SarifReport, SarifStrategy, resolve_strategy, run_adapter, with_native_flags,
 };
 use crate::{git, warn_user};
 
@@ -1054,14 +1053,6 @@ async fn run_hook(
         PassFilenames::None => vec![],
     };
 
-    if output_format == RunOutputFormat::Sarif && !dry_run && resolve_strategy(&hook).is_none() {
-        warn_user!(
-            "Skipping hook `{}` because no SARIF adaptor is built in or configured.",
-            hook.id
-        );
-        return Ok(RunResult::from_status(hook, RunStatus::DryRun));
-    }
-
     let (exit_status, hook_output) = if dry_run {
         let mut output = Vec::new();
         if !filenames.is_empty() {
@@ -1080,7 +1071,23 @@ async fn run_hook(
         let mut run_hook = hook.clone();
         let mut strategy = None;
         if output_format == RunOutputFormat::Sarif {
-            strategy = resolve_strategy(&hook);
+            strategy = match resolve_strategy(&hook) {
+                Ok(strategy) => strategy,
+                Err(err) => {
+                    warn_user!(
+                        "Skipping hook `{}` because SARIF adaptor resolution failed: {err}",
+                        hook.id
+                    );
+                    return Ok(RunResult::from_status(hook, RunStatus::DryRun));
+                }
+            };
+            if strategy.is_none() {
+                warn_user!(
+                    "Skipping hook `{}` because no SARIF adaptor is configured and no matching adaptor was found in `adaptors/`.",
+                    hook.id
+                );
+                return Ok(RunResult::from_status(hook, RunStatus::DryRun));
+            }
             if let Some(SarifStrategy::NativeFlags(flags)) = &strategy {
                 run_hook = with_native_flags(&hook, flags);
             }
@@ -1093,7 +1100,6 @@ async fn run_hook(
             .with_context(|| format!("Failed to run hook `{run_hook}`"))?;
 
         if let Some(SarifStrategy::Adapter { binary, args }) = strategy {
-            let binary = resolve_adapter_binary(&hook, &binary);
             let adapted = run_adapter(&binary, &args, &output)
                 .await
                 .with_context(|| format!("Failed to convert output to SARIF for hook `{hook}`"))?;

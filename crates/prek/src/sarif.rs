@@ -1,7 +1,7 @@
-use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::io::AsyncWriteExt;
@@ -18,52 +18,73 @@ pub(crate) enum SarifStrategy {
 /// Resolve SARIF strategy for a hook.
 ///
 /// Priority:
-/// 1. Hook config (`sarif`)
-/// 2. Built-in adaptor registry
-pub(crate) fn resolve_strategy(hook: &Hook) -> Option<SarifStrategy> {
+/// 1. Hook config (`sarif`) - explicit user configuration
+/// 2. `adaptors/<hook-id>.yaml`
+/// 3. `adaptors/<hook-id>` binary, then `adaptors/<hook-id>.nim`
+pub(crate) fn resolve_strategy(hook: &Hook) -> Result<Option<SarifStrategy>> {
     if let Some(config) = &hook.sarif {
-        return Some(match config {
+        return Ok(Some(match config {
             SarifConfig::Flags { args } => SarifStrategy::NativeFlags(args.clone()),
             SarifConfig::Adapter { binary, args } => SarifStrategy::Adapter {
                 binary: binary.clone(),
                 args: args.clone(),
             },
+        }));
+    }
+
+    resolve_adaptor_from_folder(hook)
+}
+
+#[derive(Debug, Deserialize)]
+struct AdaptorYaml {
+    #[serde(default)]
+    flags: Vec<String>,
+    binary: Option<String>,
+    #[serde(default)]
+    args: Vec<String>,
+}
+
+fn resolve_adaptor_from_folder(hook: &Hook) -> Result<Option<SarifStrategy>> {
+    let adaptor_dir = hook.work_dir().join("adaptors");
+    let yaml = adaptor_dir.join(format!("{}.yaml", hook.id));
+    if yaml.is_file() {
+        let content = fs_err::read_to_string(&yaml)
+            .with_context(|| format!("Failed to read adaptor config `{}`", yaml.display()))?;
+        let parsed: AdaptorYaml = serde_saphyr::from_str(&content)
+            .with_context(|| format!("Failed to parse adaptor config `{}`", yaml.display()))?;
+        return Ok(Some(strategy_from_adaptor_yaml(parsed)?));
+    }
+
+    let binary = adaptor_dir.join(&hook.id);
+    if binary.is_file() {
+        return Ok(Some(SarifStrategy::Adapter {
+            binary: binary.to_string_lossy().to_string(),
+            args: vec![],
+        }));
+    }
+
+    let nim = adaptor_dir.join(format!("{}.nim", hook.id));
+    if nim.is_file() {
+        return Ok(Some(SarifStrategy::Adapter {
+            binary: nim.to_string_lossy().to_string(),
+            args: vec![],
+        }));
+    }
+
+    Ok(None)
+}
+
+fn strategy_from_adaptor_yaml(adaptor: AdaptorYaml) -> Result<SarifStrategy> {
+    if !adaptor.flags.is_empty() {
+        return Ok(SarifStrategy::NativeFlags(adaptor.flags));
+    }
+    if let Some(binary) = adaptor.binary {
+        return Ok(SarifStrategy::Adapter {
+            binary,
+            args: adaptor.args,
         });
     }
-
-    builtin_strategy(hook)
-}
-
-fn builtin_strategy(hook: &Hook) -> Option<SarifStrategy> {
-    let entry = hook.entry.split().ok()?;
-    let cmd = Path::new(entry.first()?);
-    let name = cmd
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-
-    match name.as_str() {
-        "ruff" => Some(SarifStrategy::NativeFlags(vec![
-            "--output-format".to_string(),
-            "sarif".to_string(),
-        ])),
-        _ => None,
-    }
-}
-
-pub(crate) fn resolve_adapter_binary(hook: &Hook, binary: &str) -> String {
-    let candidate = Path::new(binary);
-    if candidate.is_absolute() {
-        return binary.to_string();
-    }
-
-    let adaptor_path = hook.work_dir().join("adaptors").join(binary);
-    if adaptor_path.is_file() {
-        return adaptor_path.to_string_lossy().to_string();
-    }
-
-    binary.to_string()
+    anyhow::bail!("Adaptor YAML must specify either `flags` or `binary`")
 }
 
 pub(crate) fn with_native_flags(hook: &InstalledHook, flags: &[String]) -> InstalledHook {
@@ -158,7 +179,7 @@ impl SarifReport {
 
 #[cfg(test)]
 mod tests {
-    use super::SarifReport;
+    use super::{AdaptorYaml, SarifReport, SarifStrategy, strategy_from_adaptor_yaml};
 
     #[test]
     fn push_json_accepts_multiple_sarif_documents() {
@@ -169,5 +190,38 @@ mod tests {
         let rendered = report.to_pretty_json().expect("render sarif");
         assert!(rendered.contains("\"name\": \"ruff\""));
         assert!(rendered.contains("\"name\": \"flake8\""));
+    }
+
+    #[test]
+    fn adaptor_yaml_flags_strategy() {
+        let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
+            flags: vec!["--output-format".to_string(), "sarif".to_string()],
+            binary: None,
+            args: vec![],
+        })
+        .expect("flags strategy should parse");
+        match strategy {
+            SarifStrategy::NativeFlags(flags) => {
+                assert_eq!(flags, vec!["--output-format", "sarif"]);
+            }
+            _ => panic!("expected native flags strategy"),
+        }
+    }
+
+    #[test]
+    fn adaptor_yaml_binary_strategy() {
+        let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
+            flags: vec![],
+            binary: Some("adaptors/ruff-check".to_string()),
+            args: vec!["--foo".to_string()],
+        })
+        .expect("binary strategy should parse");
+        match strategy {
+            SarifStrategy::Adapter { binary, args } => {
+                assert_eq!(binary, "adaptors/ruff-check");
+                assert_eq!(args, vec!["--foo"]);
+            }
+            _ => panic!("expected adapter strategy"),
+        }
     }
 }
