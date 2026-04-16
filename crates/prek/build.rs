@@ -196,6 +196,11 @@ fn compile_nim_adaptor(source: &Path, output: &Path) {
 
 fn generate_embedded_adaptors_rs(path: &Path, entries: &[(String, String, PathBuf)]) {
     let mut content = String::new();
+    content.push_str("pub(crate) const EMBEDDED_ADAPTOR_NAMES: &[&str] = &[\n");
+    for (name, _, _) in entries {
+        let _ = writeln!(content, "    {name:?},");
+    }
+    content.push_str("];\n\n");
     content.push_str("pub(crate) fn embedded_adaptor(name: &str) -> Option<(&'static str, &'static [u8])> {\n");
     content.push_str("    match name {\n");
     for (name, output_name, output_path) in entries {

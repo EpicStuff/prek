@@ -36,7 +36,27 @@ pub(crate) fn resolve_strategy(hook: &Hook) -> Result<Option<SarifStrategy>> {
         }));
     }
 
+    if let Some(strategy) = resolve_built_in_strategy(&hook.id) {
+        return Ok(Some(strategy));
+    }
+
     resolve_adaptor_from_folder(hook)
+}
+
+fn resolve_built_in_strategy(hook_id: &str) -> Option<SarifStrategy> {
+    match hook_id {
+        "ruff-check" => Some(SarifStrategy::NativeFlags(vec![
+            "--output-format".to_string(),
+            "sarif".to_string(),
+        ])),
+        _ => embedded::EMBEDDED_ADAPTOR_NAMES
+            .iter()
+            .find(|name| **name == hook_id)
+            .map(|_| SarifStrategy::Adapter {
+                binary: format!("embedded://{hook_id}"),
+                args: vec![],
+            }),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -221,7 +241,9 @@ impl SarifReport {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdaptorYaml, SarifReport, SarifStrategy, strategy_from_adaptor_yaml};
+    use super::{
+        AdaptorYaml, SarifReport, SarifStrategy, resolve_built_in_strategy, strategy_from_adaptor_yaml,
+    };
 
     #[test]
     fn push_json_accepts_multiple_sarif_documents() {
@@ -264,6 +286,17 @@ mod tests {
                 assert_eq!(args, vec!["--foo"]);
             }
             _ => panic!("expected adapter strategy"),
+        }
+    }
+
+    #[test]
+    fn built_in_ruff_check_uses_native_flags() {
+        let strategy = resolve_built_in_strategy("ruff-check").expect("strategy");
+        match strategy {
+            SarifStrategy::NativeFlags(flags) => {
+                assert_eq!(flags, vec!["--output-format", "sarif"]);
+            }
+            _ => panic!("expected native flags"),
         }
     }
 }
