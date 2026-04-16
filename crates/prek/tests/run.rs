@@ -240,7 +240,7 @@ fn run_sarif_skips_hook_without_adapter() -> Result<()> {
     }
 
     ----- stderr -----
-    warning: Skipping hook `no-sarif` because no SARIF adaptor is configured and no matching adaptor was found in `adaptors/`.
+    warning: Skipping hook `no-sarif` because no SARIF adaptor is configured and no embedded adaptor matched this hook id.
     "#
     );
 

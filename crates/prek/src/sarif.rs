@@ -23,8 +23,7 @@ pub(crate) enum SarifStrategy {
 ///
 /// Priority:
 /// 1. Hook config (`sarif`) - explicit user configuration
-/// 2. `adaptors/<hook-id>.yaml`
-/// 3. `adaptors/<hook-id>` binary, then `adaptors/<hook-id>.nim`
+/// 2. Embedded adaptor metadata by hook id
 pub(crate) fn resolve_strategy(hook: &Hook) -> Result<Option<SarifStrategy>> {
     if let Some(config) = &hook.sarif {
         return Ok(Some(match config {
@@ -36,27 +35,31 @@ pub(crate) fn resolve_strategy(hook: &Hook) -> Result<Option<SarifStrategy>> {
         }));
     }
 
-    if let Some(strategy) = resolve_built_in_strategy(&hook.id) {
+    if let Some(strategy) = resolve_embedded_strategy(&hook.id)? {
         return Ok(Some(strategy));
     }
 
-    resolve_adaptor_from_folder(hook)
+    Ok(None)
 }
 
-fn resolve_built_in_strategy(hook_id: &str) -> Option<SarifStrategy> {
-    match hook_id {
-        "ruff-check" => Some(SarifStrategy::NativeFlags(vec![
-            "--output-format".to_string(),
-            "sarif".to_string(),
-        ])),
-        _ => embedded::EMBEDDED_ADAPTOR_NAMES
-            .iter()
-            .find(|name| **name == hook_id)
-            .map(|_| SarifStrategy::Adapter {
-                binary: format!("embedded://{hook_id}"),
-                args: vec![],
-            }),
+fn resolve_embedded_strategy(hook_id: &str) -> Result<Option<SarifStrategy>> {
+    if let Some(yaml) = embedded::embedded_adaptor_yaml(hook_id) {
+        let parsed: AdaptorYaml = serde_saphyr::from_str(yaml)
+            .with_context(|| format!("Failed to parse embedded adaptor yaml for `{hook_id}`"))?;
+        return Ok(Some(strategy_from_adaptor_yaml(parsed)?));
     }
+
+    if embedded::EMBEDDED_ADAPTOR_NAMES
+        .iter()
+        .any(|name| *name == hook_id)
+    {
+        return Ok(Some(SarifStrategy::Adapter {
+            binary: format!("embedded://{hook_id}"),
+            args: vec![],
+        }));
+    }
+
+    Ok(None)
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,36 +69,6 @@ struct AdaptorYaml {
     binary: Option<String>,
     #[serde(default)]
     args: Vec<String>,
-}
-
-fn resolve_adaptor_from_folder(hook: &Hook) -> Result<Option<SarifStrategy>> {
-    let adaptor_dir = hook.work_dir().join("adaptors");
-    let yaml = adaptor_dir.join(format!("{}.yaml", hook.id));
-    if yaml.is_file() {
-        let content = fs_err::read_to_string(&yaml)
-            .with_context(|| format!("Failed to read adaptor config `{}`", yaml.display()))?;
-        let parsed: AdaptorYaml = serde_saphyr::from_str(&content)
-            .with_context(|| format!("Failed to parse adaptor config `{}`", yaml.display()))?;
-        return Ok(Some(strategy_from_adaptor_yaml(parsed)?));
-    }
-
-    let binary = adaptor_dir.join(&hook.id);
-    if binary.is_file() {
-        return Ok(Some(SarifStrategy::Adapter {
-            binary: binary.to_string_lossy().to_string(),
-            args: vec![],
-        }));
-    }
-
-    let nim = adaptor_dir.join(format!("{}.nim", hook.id));
-    if nim.is_file() {
-        return Ok(Some(SarifStrategy::Adapter {
-            binary: format!("embedded://{}", hook.id),
-            args: vec![],
-        }));
-    }
-
-    Ok(None)
 }
 
 fn strategy_from_adaptor_yaml(adaptor: AdaptorYaml) -> Result<SarifStrategy> {
@@ -242,7 +215,7 @@ impl SarifReport {
 #[cfg(test)]
 mod tests {
     use super::{
-        AdaptorYaml, SarifReport, SarifStrategy, resolve_built_in_strategy, strategy_from_adaptor_yaml,
+        AdaptorYaml, SarifReport, SarifStrategy, resolve_embedded_strategy, strategy_from_adaptor_yaml,
     };
 
     #[test]
@@ -290,8 +263,10 @@ mod tests {
     }
 
     #[test]
-    fn built_in_ruff_check_uses_native_flags() {
-        let strategy = resolve_built_in_strategy("ruff-check").expect("strategy");
+    fn embedded_ruff_check_uses_native_flags() {
+        let strategy = resolve_embedded_strategy("ruff-check")
+            .expect("strategy resolution should succeed")
+            .expect("strategy should exist");
         match strategy {
             SarifStrategy::NativeFlags(flags) => {
                 assert_eq!(flags, vec!["--output-format", "sarif"]);

@@ -141,18 +141,18 @@ fn build_embedded_adaptors(workspace_root: &Path) {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR should be set"));
     let compiled_dir = out_dir.join("embedded_adaptors");
     fs::create_dir_all(&compiled_dir).expect("Failed to create embedded adaptor output directory");
+    let nim_available = Command::new("nim").arg("--version").output().is_ok();
 
     let mut entries = Vec::<(String, String, PathBuf)>::new();
+    let mut yaml_entries = Vec::<(String, String)>::new();
     let read = fs::read_dir(&adaptors_dir).expect("Failed to read adaptors directory");
     for entry in read.flatten() {
         let path = entry.path();
-        let is_nim = path
+        let ext = path
             .extension()
             .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("nim"));
-        if !is_nim {
-            continue;
-        }
+            .unwrap_or_default()
+            .to_ascii_lowercase();
 
         let stem = path
             .file_stem()
@@ -161,16 +161,29 @@ fn build_embedded_adaptors(workspace_root: &Path) {
             .to_string();
         println!("cargo:rerun-if-changed={}", path.display());
 
-        let mut output_name = stem.clone();
-        if cfg!(windows) {
-            output_name.push_str(".exe");
+        if ext == "nim" {
+            if !nim_available {
+                println!(
+                    "cargo:warning=Skipping Nim adaptor `{}` because `nim` is not available on PATH during build",
+                    path.display()
+                );
+                continue;
+            }
+            let mut output_name = stem.clone();
+            if cfg!(windows) {
+                output_name.push_str(".exe");
+            }
+            let output_path = compiled_dir.join(&output_name);
+            compile_nim_adaptor(&path, &output_path);
+            entries.push((stem, output_name, output_path));
+        } else if ext == "yaml" {
+            let content = fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("Failed to read adaptor yaml `{}`: {e}", path.display()));
+            yaml_entries.push((stem, content));
         }
-        let output_path = compiled_dir.join(&output_name);
-        compile_nim_adaptor(&path, &output_path);
-        entries.push((stem, output_name, output_path));
     }
 
-    generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries);
+    generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries, &yaml_entries);
 }
 
 fn compile_nim_adaptor(source: &Path, output: &Path) {
@@ -194,13 +207,25 @@ fn compile_nim_adaptor(source: &Path, output: &Path) {
     }
 }
 
-fn generate_embedded_adaptors_rs(path: &Path, entries: &[(String, String, PathBuf)]) {
+fn generate_embedded_adaptors_rs(
+    path: &Path,
+    entries: &[(String, String, PathBuf)],
+    yaml_entries: &[(String, String)],
+) {
     let mut content = String::new();
     content.push_str("pub(crate) const EMBEDDED_ADAPTOR_NAMES: &[&str] = &[\n");
     for (name, _, _) in entries {
         let _ = writeln!(content, "    {name:?},");
     }
     content.push_str("];\n\n");
+    content.push_str("pub(crate) fn embedded_adaptor_yaml(name: &str) -> Option<&'static str> {\n");
+    content.push_str("    match name {\n");
+    for (name, yaml) in yaml_entries {
+        let _ = writeln!(content, "        {name:?} => Some({yaml:?}),");
+    }
+    content.push_str("        _ => None,\n");
+    content.push_str("    }\n");
+    content.push_str("}\n\n");
     content.push_str("pub(crate) fn embedded_adaptor(name: &str) -> Option<(&'static str, &'static [u8])> {\n");
     content.push_str("    match name {\n");
     for (name, output_name, output_path) in entries {
