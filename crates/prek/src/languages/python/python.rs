@@ -197,7 +197,7 @@ impl LanguageImpl for Python {
         let entry = hook.entry.resolve(Some(&new_path))?;
 
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "python hook")
+            let output = Cmd::new(&entry[0], "python hook")
                 .current_dir(hook.work_dir())
                 .args(&entry[1..])
                 .env(EnvVars::VIRTUAL_ENV, env_dir)

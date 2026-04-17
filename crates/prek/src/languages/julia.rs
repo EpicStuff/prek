@@ -117,7 +117,7 @@ impl LanguageImpl for Julia {
         }
 
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new("julia", "run julia hook")
+            let output = Cmd::new("julia", "run julia hook")
                 .current_dir(hook.work_dir())
                 .arg("--startup-file=no")
                 .arg(format!("--project={}", env_dir.display()))

@@ -486,7 +486,7 @@ impl LanguageImpl for Docker {
         let run = async |batch: &[&Path]| {
             // docker run [OPTIONS] IMAGE [COMMAND] [ARG...]
             let mut cmd = Docker::docker_run_cmd(hook.work_dir());
-            let mut output = cmd
+            let output = cmd
                 .current_dir(hook.work_dir())
                 .args(&env_args)
                 .arg("--entrypoint")

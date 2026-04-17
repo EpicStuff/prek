@@ -528,7 +528,7 @@ impl LanguageImpl for Rust {
 
         let entry = hook.entry.resolve(Some(&new_path))?;
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "rust hook")
+            let output = Cmd::new(&entry[0], "rust hook")
                 .current_dir(hook.work_dir())
                 .args(&entry[1..])
                 .env(EnvVars::PATH, &new_path)

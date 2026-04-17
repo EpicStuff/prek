@@ -50,7 +50,7 @@ impl LanguageImpl for Script {
         let entry = resolve_command(split, None);
 
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "run script command")
+            let output = Cmd::new(&entry[0], "run script command")
                 .current_dir(hook.work_dir())
                 .envs(&hook.env)
                 .args(&entry[1..])

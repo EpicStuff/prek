@@ -146,7 +146,7 @@ impl LanguageImpl for Lua {
         let lua_cpath = Lua::get_lua_cpath(env_dir, &version);
 
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "run lua command")
+            let output = Cmd::new(&entry[0], "run lua command")
                 .current_dir(hook.work_dir())
                 .args(&entry[1..])
                 .env(EnvVars::PATH, &new_path)

@@ -164,7 +164,7 @@ impl LanguageImpl for Ruby {
 
         // Execute in batches
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "ruby hook")
+            let output = Cmd::new(&entry[0], "ruby hook")
                 .current_dir(hook.work_dir())
                 .env(EnvVars::PATH, &new_path)
                 .env(EnvVars::GEM_HOME, &gem_home)

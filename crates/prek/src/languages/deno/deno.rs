@@ -197,7 +197,7 @@ impl LanguageImpl for Deno {
 
         let run = async |batch: &[&Path]| {
             let mut cmd = Cmd::new(&entry[0], "deno hook");
-            let mut output = cmd
+            let output = cmd
                 .current_dir(hook.work_dir())
                 .env(EnvVars::PATH, &new_path)
                 .env(EnvVars::DENO_DIR, &deno_cache_dir)
