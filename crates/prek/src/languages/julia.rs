@@ -117,7 +117,7 @@ impl LanguageImpl for Julia {
         }
 
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new("julia", "run julia hook")
+            let output = Cmd::new("julia", "run julia hook")
                 .current_dir(hook.work_dir())
                 .arg("--startup-file=no")
                 .arg(format!("--project={}", env_dir.display()))
@@ -127,14 +127,14 @@ impl LanguageImpl for Julia {
                 .args(batch)
                 .check(false)
                 .stdin(Stdio::null())
-                .pty_output()
+                .hook_output(crate::languages::in_sarif_mode(hook))
                 .await?;
 
             reporter.on_run_progress(progress, batch.len() as u64);
 
-            output.stdout.extend(output.stderr);
             let code = output.status.code().unwrap_or(1);
-            anyhow::Ok((code, output.stdout))
+            let combined_output = crate::languages::collect_hook_output(hook, output);
+            anyhow::Ok((code, combined_output))
         };
 
         let results = run_by_batch(hook, filenames, &entry, run).await?;

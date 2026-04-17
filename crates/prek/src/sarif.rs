@@ -110,6 +110,24 @@ pub(crate) fn with_native_flags(hook: &InstalledHook, flags: &[String]) -> Insta
     }
 }
 
+pub(crate) fn with_env_var(hook: &InstalledHook, key: &str, value: &str) -> InstalledHook {
+    match hook {
+        InstalledHook::Installed { hook, info } => {
+            let mut cloned = (**hook).clone();
+            cloned.env.insert(key.to_string(), value.to_string());
+            InstalledHook::Installed {
+                hook: Arc::new(cloned),
+                info: info.clone(),
+            }
+        }
+        InstalledHook::NoNeedInstall(hook) => {
+            let mut cloned = (**hook).clone();
+            cloned.env.insert(key.to_string(), value.to_string());
+            InstalledHook::NoNeedInstall(Arc::new(cloned))
+        }
+    }
+}
+
 pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> Result<Vec<u8>> {
     let binary = materialize_embedded_adaptor(binary)?;
     let mut cmd = tokio::process::Command::new(&binary);
