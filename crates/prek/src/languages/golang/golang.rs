@@ -9,7 +9,7 @@ use prek_consts::prepend_paths;
 
 use crate::cli::reporter::{HookInstallReporter, HookRunReporter};
 use crate::hook::{Hook, InstallInfo, InstalledHook};
-use crate::languages::LanguageImpl;
+use crate::languages::{HookOutput, LanguageImpl};
 use crate::languages::golang::GoRequest;
 use crate::languages::golang::installer::GoInstaller;
 use crate::languages::version::LanguageRequest;
@@ -123,7 +123,7 @@ impl LanguageImpl for Golang {
         filenames: &[&Path],
         store: &Store,
         reporter: &HookRunReporter,
-    ) -> anyhow::Result<(i32, Vec<u8>)> {
+    ) -> anyhow::Result<(i32, HookOutput)> {
         let progress = reporter.on_run_start(hook, filenames.len());
 
         let env_dir = hook.env_path().expect("Node hook must have env path");
@@ -144,7 +144,7 @@ impl LanguageImpl for Golang {
 
         let entry = hook.entry.resolve(Some(&new_path))?;
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "go hook")
+            let output = Cmd::new(&entry[0], "go hook")
                 .current_dir(hook.work_dir())
                 .args(&entry[1..])
                 .env(EnvVars::PATH, &new_path)
@@ -162,9 +162,14 @@ impl LanguageImpl for Golang {
 
             reporter.on_run_progress(progress, batch.len() as u64);
 
-            output.stdout.extend(output.stderr);
             let code = output.status.code().unwrap_or(1);
-            anyhow::Ok((code, output.stdout))
+            anyhow::Ok((
+                code,
+                HookOutput {
+                    stdout: output.stdout,
+                    stderr: output.stderr,
+                },
+            ))
         };
 
         let results = run_by_batch(hook, filenames, &entry, run).await?;
@@ -172,11 +177,12 @@ impl LanguageImpl for Golang {
         reporter.on_run_complete(progress);
 
         let mut combined_status = 0;
-        let mut combined_output = Vec::new();
+        let mut combined_output = HookOutput::default();
 
         for (code, output) in results {
             combined_status |= code;
-            combined_output.extend(output);
+            combined_output.stdout.extend(output.stdout);
+            combined_output.stderr.extend(output.stderr);
         }
 
         Ok((combined_status, combined_output))

@@ -6,7 +6,7 @@ use anyhow::Result;
 
 use crate::cli::reporter::{HookInstallReporter, HookRunReporter};
 use crate::hook::{Hook, InstallInfo, InstalledHook};
-use crate::languages::LanguageImpl;
+use crate::languages::{HookOutput, LanguageImpl};
 use crate::store::Store;
 
 #[derive(Debug, Copy, Clone)]
@@ -32,7 +32,7 @@ impl LanguageImpl for Fail {
         filenames: &[&Path],
         _store: &Store,
         _reporter: &HookRunReporter,
-    ) -> Result<(i32, Vec<u8>)> {
+    ) -> Result<(i32, HookOutput)> {
         let mut out = Vec::new();
         writeln!(out, "{}\n", hook.entry.raw())?;
         for f in filenames {
@@ -41,6 +41,12 @@ impl LanguageImpl for Fail {
         }
         out.push(b'\n');
 
-        Ok((1, out))
+        Ok((
+            1,
+            HookOutput {
+                stdout: out,
+                stderr: Vec::new(),
+            },
+        ))
     }
 }

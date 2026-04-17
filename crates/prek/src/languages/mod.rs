@@ -55,6 +55,27 @@ static SWIFT: swift::Swift = swift::Swift;
 static SYSTEM: system::System = system::System;
 static UNIMPLEMENTED: Unimplemented = Unimplemented;
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct HookOutput {
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+}
+
+impl HookOutput {
+    pub(crate) fn from_stdout(stdout: Vec<u8>) -> Self {
+        Self {
+            stdout,
+            stderr: Vec::new(),
+        }
+    }
+
+    pub(crate) fn merged(&self) -> Vec<u8> {
+        let mut output = self.stdout.clone();
+        output.extend(&self.stderr);
+        output
+    }
+}
+
 trait LanguageImpl {
     async fn install(
         &self,
@@ -71,7 +92,7 @@ trait LanguageImpl {
         filenames: &[&Path],
         store: &Store,
         reporter: &HookRunReporter,
-    ) -> Result<(i32, Vec<u8>)>;
+    ) -> Result<(i32, HookOutput)>;
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -100,7 +121,7 @@ impl LanguageImpl for Unimplemented {
         _filenames: &[&Path],
         _store: &Store,
         _reporter: &HookRunReporter,
-    ) -> Result<(i32, Vec<u8>)> {
+    ) -> Result<(i32, HookOutput)> {
         anyhow::bail!(UnimplementedError(format!("{}", hook.language)))
     }
 }
@@ -278,24 +299,28 @@ impl Language {
         filenames: &[&Path],
         store: &Store,
         reporter: &HookRunReporter,
-    ) -> Result<(i32, Vec<u8>)> {
+    ) -> Result<(i32, HookOutput)> {
         match hook.repo() {
             Repo::Meta { .. } => {
                 return hooks::MetaHooks::from_str(&hook.id)
                     .unwrap()
                     .run(store, hook, filenames, reporter)
-                    .await;
+                    .await
+                    .map(|(status, output)| (status, HookOutput::from_stdout(output)));
             }
             Repo::Builtin { .. } => {
                 return hooks::BuiltinHooks::from_str(&hook.id)
                     .unwrap()
                     .run(store, hook, filenames, reporter)
-                    .await;
+                    .await
+                    .map(|(status, output)| (status, HookOutput::from_stdout(output)));
             }
             Repo::Remote { .. } => {
                 // Fast path for hooks implemented in Rust
                 if hooks::check_fast_path(hook) {
-                    return hooks::run_fast_path(store, hook, filenames, reporter).await;
+                    return hooks::run_fast_path(store, hook, filenames, reporter)
+                        .await
+                        .map(|(status, output)| (status, HookOutput::from_stdout(output)));
                 }
             }
             Repo::Local { .. } => {}

@@ -230,6 +230,28 @@ mod tests {
     }
 
     #[test]
+    fn push_json_accepts_sarif_stdout_without_stderr_noise() {
+        let mut report = SarifReport::default();
+        let stdout = br#"{"runs":[{"tool":{"driver":{"name":"ruff"}},"results":[]}]} "#;
+        let stderr = b"warning: deprecated flag in ruff\n";
+
+        report
+            .push_json(stdout)
+            .expect("valid SARIF stdout should parse");
+        assert!(!stderr.is_empty(), "stderr noise should not affect parsing");
+        assert!(!report.is_empty());
+    }
+
+    #[test]
+    fn push_json_rejects_non_sarif_stdout_with_clear_error() {
+        let mut report = SarifReport::default();
+        let err = report
+            .push_json(br#"{"not_runs":[]}"#)
+            .expect_err("non-SARIF JSON should fail");
+        assert!(err.to_string().contains("Output is not SARIF"));
+    }
+
+    #[test]
     fn adaptor_yaml_flags_strategy() {
         let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
             flags: vec!["--output-format".to_string(), "sarif".to_string()],

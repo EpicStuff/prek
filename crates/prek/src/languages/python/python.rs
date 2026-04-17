@@ -15,7 +15,7 @@ use tracing::{debug, trace};
 use crate::cli::reporter::{HookInstallReporter, HookRunReporter};
 use crate::hook::InstalledHook;
 use crate::hook::{Hook, InstallInfo};
-use crate::languages::LanguageImpl;
+use crate::languages::{HookOutput, LanguageImpl};
 use crate::languages::python::PythonRequest;
 use crate::languages::python::uv::Uv;
 use crate::languages::version::LanguageRequest;
@@ -189,7 +189,7 @@ impl LanguageImpl for Python {
         filenames: &[&Path],
         _store: &Store,
         reporter: &HookRunReporter,
-    ) -> Result<(i32, Vec<u8>)> {
+    ) -> Result<(i32, HookOutput)> {
         let progress = reporter.on_run_start(hook, filenames.len());
 
         let env_dir = hook.env_path().expect("Python must have env path");
@@ -197,7 +197,7 @@ impl LanguageImpl for Python {
         let entry = hook.entry.resolve(Some(&new_path))?;
 
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "python hook")
+            let output = Cmd::new(&entry[0], "python hook")
                 .current_dir(hook.work_dir())
                 .args(&entry[1..])
                 .env(EnvVars::VIRTUAL_ENV, env_dir)
@@ -213,9 +213,14 @@ impl LanguageImpl for Python {
 
             reporter.on_run_progress(progress, batch.len() as u64);
 
-            output.stdout.extend(output.stderr);
             let code = output.status.code().unwrap_or(1);
-            anyhow::Ok((code, output.stdout))
+            anyhow::Ok((
+                code,
+                HookOutput {
+                    stdout: output.stdout,
+                    stderr: output.stderr,
+                },
+            ))
         };
 
         let results = run_by_batch(hook, filenames, &entry, run).await?;
@@ -224,11 +229,12 @@ impl LanguageImpl for Python {
 
         // Collect results
         let mut combined_status = 0;
-        let mut combined_output = Vec::new();
+        let mut combined_output = HookOutput::default();
 
         for (code, output) in results {
             combined_status |= code;
-            combined_output.extend(output);
+            combined_output.stdout.extend(output.stdout);
+            combined_output.stderr.extend(output.stderr);
         }
 
         Ok((combined_status, combined_output))
