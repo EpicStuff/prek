@@ -30,7 +30,7 @@ use crate::run::{CONCURRENCY, USE_COLOR};
 use crate::store::Store;
 use crate::workspace::{Project, Workspace};
 use crate::sarif::{
-    SarifReport, SarifStrategy, resolve_strategy, run_adapter, with_native_flags,
+    SarifReport, SarifStrategy, resolve_strategy, run_adapter, with_env_var, with_native_flags,
 };
 use crate::{git, warn_user};
 
@@ -1071,6 +1071,7 @@ async fn run_hook(
         let mut run_hook = hook.clone();
         let mut strategy = None;
         if output_format == RunOutputFormat::Sarif {
+            run_hook = with_env_var(&run_hook, EnvVars::PREK_INTERNAL__SARIF_MODE, "1");
             strategy = match resolve_strategy(&hook) {
                 Ok(strategy) => strategy,
                 Err(err) => {
@@ -1089,7 +1090,7 @@ async fn run_hook(
                 return Ok(RunResult::from_status(hook, RunStatus::DryRun));
             }
             if let Some(SarifStrategy::NativeFlags(flags)) = &strategy {
-                run_hook = with_native_flags(&hook, flags);
+                run_hook = with_native_flags(&run_hook, flags);
             }
         }
 
