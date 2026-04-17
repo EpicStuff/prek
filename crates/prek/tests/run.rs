@@ -246,6 +246,58 @@ fn run_sarif_skips_hook_without_adapter() -> Result<()> {
 }
 
 #[test]
+fn run_sarif_native_flags_forwards_hook_stderr_and_parses_stdout() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: sarif-native
+                name: sarif-native
+                entry: python3 -c "import json,sys; sys.stderr.write('hook-warning-on-stderr\n'); print(json.dumps({'runs':[{'tool':{'driver':{'name':'native-demo'}},'results':[]}]}))"
+                language: system
+                pass_filenames: false
+                always_run: true
+                sarif: --output-format sarif
+    "#});
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    {
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [
+        {
+          "tool": {
+            "driver": {
+              "name": "native-demo"
+            }
+          },
+          "results": []
+        }
+      ]
+    }
+
+    ----- stderr -----
+    hook-warning-on-stderr
+    "#
+    );
+
+    Ok(())
+}
+
+#[test]
 fn invalid_config() {
     let context = TestContext::new();
     context.init_project();

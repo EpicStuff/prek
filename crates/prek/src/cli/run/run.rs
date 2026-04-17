@@ -1090,7 +1090,7 @@ async fn run_hook(
                 return Ok(RunResult::from_status(hook, RunStatus::DryRun));
             }
             if let Some(SarifStrategy::NativeFlags(flags)) = &strategy {
-                run_hook = with_native_flags(&hook, flags);
+                run_hook = with_native_flags(&run_hook, flags);
             }
         }
 
