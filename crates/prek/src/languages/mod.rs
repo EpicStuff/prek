@@ -1,5 +1,7 @@
 use std::ffi::OsStr;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
+use std::process::Output;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -72,6 +74,26 @@ trait LanguageImpl {
         store: &Store,
         reporter: &HookRunReporter,
     ) -> Result<(i32, Vec<u8>)>;
+}
+
+pub(crate) fn in_sarif_mode(hook: &InstalledHook) -> bool {
+    hook.env
+        .get(EnvVars::PREK_INTERNAL__SARIF_MODE)
+        .is_some_and(|value| value == "1")
+}
+
+pub(crate) fn collect_hook_output(hook: &InstalledHook, mut output: Output) -> Vec<u8> {
+    if in_sarif_mode(hook) {
+        if !output.stderr.is_empty() {
+            let mut stderr = std::io::stderr().lock();
+            let _ = stderr.write_all(&output.stderr);
+            let _ = stderr.flush();
+        }
+        output.stdout
+    } else {
+        output.stdout.extend(output.stderr);
+        output.stdout
+    }
 }
 
 #[derive(thiserror::Error, Debug)]
