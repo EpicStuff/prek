@@ -198,10 +198,27 @@ impl Cmd {
     /// Capture command output, using PTY mode unless SARIF mode requires strict stdout/stderr split.
     pub async fn hook_output(&mut self, sarif_mode: bool) -> Result<Output, Error> {
         if sarif_mode {
-            self.output().await
+            self.output_with_stderr_passthrough().await
         } else {
             self.pty_output().await
         }
+    }
+
+    /// Capture stdout while forwarding stderr directly to the current process stderr.
+    ///
+    /// This is used by SARIF mode to keep stdout machine-readable while preserving
+    /// hook stderr formatting (including ANSI colors) as if the hook ran directly.
+    pub async fn output_with_stderr_passthrough(&mut self) -> Result<Output, Error> {
+        self.inner.stdout(Stdio::piped());
+        self.inner.stderr(Stdio::inherit());
+
+        let child = self.spawn()?;
+        let output = child.wait_with_output().await.map_err(|cause| Error::Exec {
+            summary: self.summary.clone(),
+            cause,
+        })?;
+        self.maybe_check_output(&output)?;
+        Ok(output)
     }
 
     #[cfg(not(windows))]
