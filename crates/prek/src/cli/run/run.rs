@@ -681,8 +681,8 @@ async fn run_hooks(
                 })?;
             } else {
                 for result in &group_results {
-                    if !result.output.trim_ascii().is_empty()
-                        && let Err(err) = sarif_report.push_json(&result.output)
+                    if !result.stdout.trim_ascii().is_empty()
+                        && let Err(err) = sarif_report.push_json(&result.stdout)
                     {
                         warn_user!(
                             "Failed to parse SARIF from hook `{}`: {err}",
@@ -903,7 +903,10 @@ fn render_priority_group(
                 )?;
             }
 
-            let output = result.output.trim_ascii();
+            let stdout_output = result.stdout.trim_ascii();
+            let stderr_output = result.stderr.trim_ascii();
+            let output = result.merged_output();
+            let output = output.trim_ascii();
             if !output.is_empty() {
                 if let Some(file) = result.hook.log_file.as_deref() {
                     let mut file = fs_err::OpenOptions::new()
@@ -913,24 +916,47 @@ fn render_priority_group(
                     file.write_all(output)?;
                     file.flush()?;
                 } else {
-                    if show_group_ui {
-                        writeln!(stdout, "{}", "  │".dimmed())?;
-                    } else {
-                        writeln!(stdout)?;
-                    }
-                    let text = String::from_utf8_lossy(output);
-                    for line in text.lines() {
-                        if line.is_empty() {
-                            if show_group_ui {
-                                writeln!(stdout, "{}", "  │".dimmed())?;
-                            } else {
-                                writeln!(stdout)?;
-                            }
+                    if !stdout_output.is_empty() {
+                        if show_group_ui {
+                            writeln!(stdout, "{}", "  │".dimmed())?;
                         } else {
-                            if show_group_ui {
+                            writeln!(stdout)?;
+                        }
+                        let text = String::from_utf8_lossy(stdout_output);
+                        for line in text.lines() {
+                            if line.is_empty() {
+                                if show_group_ui {
+                                    writeln!(stdout, "{}", "  │".dimmed())?;
+                                } else {
+                                    writeln!(stdout)?;
+                                }
+                            } else if show_group_ui {
                                 writeln!(stdout, "{group_prefix}{line}")?;
                             } else {
                                 writeln!(stdout, "  {line}")?;
+                            }
+                        }
+                    }
+
+                    let mut stderr = printer.stderr();
+                    if !stderr_output.is_empty() {
+                        if show_group_ui {
+                            writeln!(stderr, "{}", "  │".dimmed())?;
+                        } else {
+                            writeln!(stderr)?;
+                        }
+                        let text = String::from_utf8_lossy(stderr_output);
+                        for line in text.lines() {
+                            if line.is_empty() {
+                                if show_group_ui {
+                                    writeln!(stderr, "{}", "  │".dimmed())?;
+                                } else {
+                                    writeln!(stderr)?;
+                                }
+                            } else if show_group_ui {
+                                writeln!(stderr, "{group_prefix}{line}")?;
+                            } else {
+                                writeln!(stderr, "  {line}")?;
                             }
                         }
                     }
@@ -1007,7 +1033,8 @@ struct RunResult {
     status: RunStatus,
     duration: std::time::Duration,
     exit_status: i32,
-    output: Vec<u8>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
 }
 
 impl RunResult {
@@ -1017,8 +1044,15 @@ impl RunResult {
             status,
             duration: std::time::Duration::ZERO,
             exit_status: 0,
-            output: Vec::new(),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
         }
+    }
+
+    fn merged_output(&self) -> Vec<u8> {
+        let mut output = self.stdout.clone();
+        output.extend(&self.stderr);
+        output
     }
 }
 
@@ -1066,7 +1100,7 @@ async fn run_hook(
         for filename in filenames {
             writeln!(output, "- {}", filename.display())?;
         }
-        (0, output)
+        (0, crate::languages::HookOutput::from_stdout(output))
     } else {
         let mut run_hook = hook.clone();
         let mut strategy = None;
@@ -1100,10 +1134,10 @@ async fn run_hook(
             .with_context(|| format!("Failed to run hook `{run_hook}`"))?;
 
         if let Some(SarifStrategy::Adapter { binary, args }) = strategy {
-            let adapted = run_adapter(&binary, &args, &output)
+            let adapted = run_adapter(&binary, &args, &output.stdout)
                 .await
                 .with_context(|| format!("Failed to convert output to SARIF for hook `{hook}`"))?;
-            (status, adapted)
+            (status, crate::languages::HookOutput::from_stdout(adapted))
         } else {
             (status, output)
         }
@@ -1124,7 +1158,8 @@ async fn run_hook(
         status: run_status,
         duration,
         exit_status,
-        output: hook_output,
+        stdout: hook_output.stdout,
+        stderr: hook_output.stderr,
     })
 }
 
@@ -1145,4 +1180,5 @@ mod tests {
             .write(long_name, "", RunStatus::Failed)
             .expect("write should not fail");
     }
+
 }

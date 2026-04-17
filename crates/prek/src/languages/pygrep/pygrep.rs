@@ -9,7 +9,7 @@ use tracing::debug;
 
 use crate::cli::reporter::{HookInstallReporter, HookRunReporter};
 use crate::hook::{Hook, InstallInfo, InstalledHook};
-use crate::languages::LanguageImpl;
+use crate::languages::{HookOutput, LanguageImpl};
 use crate::languages::python::{Uv, python_exec, query_python_info_cached};
 use crate::process::Cmd;
 use crate::run::CONCURRENCY;
@@ -185,7 +185,7 @@ impl LanguageImpl for Pygrep {
         filenames: &[&Path],
         store: &Store,
         reporter: &HookRunReporter,
-    ) -> Result<(i32, Vec<u8>)> {
+    ) -> Result<(i32, HookOutput)> {
         let progress = reporter.on_run_start(hook, filenames.len());
 
         let info = hook.install_info().expect("Pygrep hook must be installed");
@@ -251,7 +251,13 @@ impl LanguageImpl for Pygrep {
                 .and_then(serde_json::Value::as_i64)
                 .unwrap_or(0);
             let code = i32::try_from(code).unwrap_or(0);
-            Ok((code, output.stdout))
+            Ok((
+                code,
+                HookOutput {
+                    stdout: output.stdout,
+                    stderr: Vec::new(),
+                },
+            ))
         } else {
             // When there's an error, try to parse error JSON from stderr
             let stderr_str = String::from_utf8_lossy(&output.stderr);
