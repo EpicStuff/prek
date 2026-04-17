@@ -110,6 +110,31 @@ pub(crate) fn with_native_flags(hook: &InstalledHook, flags: &[String]) -> Insta
     }
 }
 
+/// Split output into a leading non-JSON preamble and probable JSON payload.
+///
+/// Some tools print warnings to stderr before emitting SARIF JSON. If a hook
+/// runner merges streams, this allows forwarding the preamble while still
+/// parsing SARIF.
+pub(crate) fn split_leading_non_json(bytes: &[u8]) -> (&[u8], &[u8]) {
+    let Some(first_non_ws) = bytes.iter().position(|b| !b.is_ascii_whitespace()) else {
+        return (&[], bytes);
+    };
+
+    if matches!(bytes[first_non_ws], b'{' | b'[') {
+        return (&[], bytes);
+    }
+
+    for idx in first_non_ws..bytes.len() {
+        if matches!(bytes[idx], b'{' | b'[')
+            && (idx == 0 || matches!(bytes[idx - 1], b'\n' | b'\r'))
+        {
+            return (&bytes[..idx], &bytes[idx..]);
+        }
+    }
+
+    (&[], bytes)
+}
+
 pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> Result<Vec<u8>> {
     let binary = materialize_embedded_adaptor(binary)?;
     let mut cmd = tokio::process::Command::new(&binary);
@@ -215,7 +240,8 @@ impl SarifReport {
 #[cfg(test)]
 mod tests {
     use super::{
-        AdaptorYaml, SarifReport, SarifStrategy, resolve_embedded_strategy, strategy_from_adaptor_yaml,
+        AdaptorYaml, SarifReport, SarifStrategy, resolve_embedded_strategy, split_leading_non_json,
+        strategy_from_adaptor_yaml,
     };
 
     #[test]
@@ -273,5 +299,24 @@ mod tests {
             }
             _ => panic!("expected native flags"),
         }
+    }
+
+    #[test]
+    fn split_leading_non_json_splits_warning_preamble() {
+        let output = br#"warning: ignored option
+{"runs":[{"tool":{"driver":{"name":"ruff"}}}]}"#;
+        let (preamble, payload) = split_leading_non_json(output);
+
+        assert_eq!(preamble, b"warning: ignored option\n");
+        assert_eq!(payload, br#"{"runs":[{"tool":{"driver":{"name":"ruff"}}}]}"#);
+    }
+
+    #[test]
+    fn split_leading_non_json_leaves_json_only_output_intact() {
+        let output = br#"{"runs":[{"tool":{"driver":{"name":"ruff"}}}]}"#;
+        let (preamble, payload) = split_leading_non_json(output);
+
+        assert!(preamble.is_empty());
+        assert_eq!(payload, output);
     }
 }

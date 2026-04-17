@@ -30,7 +30,8 @@ use crate::run::{CONCURRENCY, USE_COLOR};
 use crate::store::Store;
 use crate::workspace::{Project, Workspace};
 use crate::sarif::{
-    SarifReport, SarifStrategy, resolve_strategy, run_adapter, with_native_flags,
+    SarifReport, SarifStrategy, resolve_strategy, run_adapter, split_leading_non_json,
+    with_native_flags,
 };
 use crate::{git, warn_user};
 
@@ -681,8 +682,16 @@ async fn run_hooks(
                 })?;
             } else {
                 for result in &group_results {
-                    if !result.output.trim_ascii().is_empty()
-                        && let Err(err) = sarif_report.push_json(&result.output)
+                    let (stderr_preamble, sarif_payload) = split_leading_non_json(&result.output);
+                    if !stderr_preamble.is_empty() {
+                        write!(printer.stderr(), "{}", String::from_utf8_lossy(stderr_preamble))
+                            .context(
+                                "Failed to write hook stderr while rendering SARIF output",
+                            )?;
+                    }
+
+                    if !sarif_payload.trim_ascii().is_empty()
+                        && let Err(err) = sarif_report.push_json(sarif_payload)
                     {
                         warn_user!(
                             "Failed to parse SARIF from hook `{}`: {err}",
