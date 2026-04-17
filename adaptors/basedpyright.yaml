@@ -1,0 +1,3 @@
+flags:
+  - --outputjson
+binary: builtin://basedpyright
