@@ -17,6 +17,11 @@ mod embedded {
 pub(crate) enum SarifStrategy {
     NativeFlags(Vec<String>),
     Adapter { binary: String, args: Vec<String> },
+    FlagsThenAdapter {
+        flags: Vec<String>,
+        binary: String,
+        args: Vec<String>,
+    },
 }
 
 /// Resolve SARIF strategy for a hook.
@@ -72,6 +77,21 @@ struct AdaptorYaml {
 }
 
 fn strategy_from_adaptor_yaml(adaptor: AdaptorYaml) -> Result<SarifStrategy> {
+    if !adaptor.flags.is_empty() && adaptor.binary.is_some() {
+        let binary = adaptor.binary.expect("binary checked as some");
+        let binary = if binary.ends_with(".nim")
+            && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
+        {
+            format!("embedded://{stem}")
+        } else {
+            binary
+        };
+        return Ok(SarifStrategy::FlagsThenAdapter {
+            flags: adaptor.flags,
+            binary,
+            args: adaptor.args,
+        });
+    }
     if !adaptor.flags.is_empty() {
         return Ok(SarifStrategy::NativeFlags(adaptor.flags));
     }
@@ -111,6 +131,10 @@ pub(crate) fn with_native_flags(hook: &InstalledHook, flags: &[String]) -> Insta
 }
 
 pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> Result<Vec<u8>> {
+    if let Some(name) = binary.strip_prefix("builtin://") {
+        return run_builtin_adapter(name, input);
+    }
+
     let binary = materialize_embedded_adaptor(binary)?;
     let mut cmd = tokio::process::Command::new(&binary);
     cmd.args(args);
@@ -130,6 +154,134 @@ pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> 
         );
     }
     Ok(output.stdout)
+}
+
+fn run_builtin_adapter(name: &str, input: &[u8]) -> Result<Vec<u8>> {
+    match name {
+        "basedpyright" => adapt_basedpyright_json_to_sarif(input),
+        _ => anyhow::bail!("Unknown builtin SARIF adapter `{name}`"),
+    }
+}
+
+fn adapt_basedpyright_json_to_sarif(input: &[u8]) -> Result<Vec<u8>> {
+    use serde_json::json;
+
+    let value: Value =
+        serde_json::from_slice(input).context("Failed to parse basedpyright JSON output")?;
+    if value.get("runs").is_some() {
+        return Ok(input.to_vec());
+    }
+
+    let diagnostics = value
+        .get("generalDiagnostics")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut results = Vec::with_capacity(diagnostics.len());
+    for diagnostic in diagnostics {
+        let severity = diagnostic
+            .get("severity")
+            .and_then(Value::as_str)
+            .unwrap_or("warning");
+        let level = match severity {
+            "error" => "error",
+            "warning" => "warning",
+            "information" => "note",
+            _ => "warning",
+        };
+
+        let message = diagnostic
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("basedpyright diagnostic");
+        let mut result = json!({
+            "level": level,
+            "message": {
+                "text": message,
+            },
+        });
+
+        if let Some(rule) = diagnostic.get("rule").and_then(Value::as_str) {
+            result["ruleId"] = Value::String(rule.to_string());
+        }
+
+        if let Some(file) = diagnostic.get("file").and_then(Value::as_str) {
+            let start_line = diagnostic
+                .get("range")
+                .and_then(|r| r.get("start"))
+                .and_then(|s| s.get("line"))
+                .and_then(Value::as_u64)
+                .map(|line| line + 1);
+            let start_column = diagnostic
+                .get("range")
+                .and_then(|r| r.get("start"))
+                .and_then(|s| s.get("character"))
+                .and_then(Value::as_u64)
+                .map(|column| column + 1);
+            let end_line = diagnostic
+                .get("range")
+                .and_then(|r| r.get("end"))
+                .and_then(|s| s.get("line"))
+                .and_then(Value::as_u64)
+                .map(|line| line + 1);
+            let end_column = diagnostic
+                .get("range")
+                .and_then(|r| r.get("end"))
+                .and_then(|s| s.get("character"))
+                .and_then(Value::as_u64)
+                .map(|column| column + 1);
+
+            let mut location = json!({
+                "physicalLocation": {
+                    "artifactLocation": {
+                        "uri": file,
+                    },
+                },
+            });
+            if let Some(region) = location
+                .get_mut("physicalLocation")
+                .and_then(|v| v.as_object_mut())
+            {
+                let mut region_json = serde_json::Map::new();
+                if let Some(start_line) = start_line {
+                    region_json.insert("startLine".to_string(), json!(start_line));
+                }
+                if let Some(start_column) = start_column {
+                    region_json.insert("startColumn".to_string(), json!(start_column));
+                }
+                if let Some(end_line) = end_line {
+                    region_json.insert("endLine".to_string(), json!(end_line));
+                }
+                if let Some(end_column) = end_column {
+                    region_json.insert("endColumn".to_string(), json!(end_column));
+                }
+                if !region_json.is_empty() {
+                    region.insert("region".to_string(), Value::Object(region_json));
+                }
+            }
+
+            result["locations"] = json!([location]);
+        }
+
+        results.push(result);
+    }
+
+    let sarif = json!({
+        "version": "2.1.0",
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "basedpyright",
+                    },
+                },
+                "results": results,
+            }
+        ],
+    });
+    Ok(serde_json::to_vec(&sarif)?)
 }
 
 fn materialize_embedded_adaptor(binary: &str) -> Result<String> {
@@ -215,8 +367,10 @@ impl SarifReport {
 #[cfg(test)]
 mod tests {
     use super::{
-        AdaptorYaml, SarifReport, SarifStrategy, resolve_embedded_strategy, strategy_from_adaptor_yaml,
+        AdaptorYaml, SarifReport, SarifStrategy, adapt_basedpyright_json_to_sarif,
+        resolve_embedded_strategy, strategy_from_adaptor_yaml,
     };
+    use serde_json::Value;
 
     #[test]
     fn push_json_accepts_multiple_sarif_documents() {
@@ -260,6 +414,57 @@ mod tests {
             }
             _ => panic!("expected adapter strategy"),
         }
+    }
+
+    #[test]
+    fn adaptor_yaml_flags_then_adapter_strategy() {
+        let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
+            flags: vec!["--outputjson".to_string()],
+            binary: Some("builtin://basedpyright".to_string()),
+            args: vec![],
+        })
+        .expect("flags+adapter strategy should parse");
+        match strategy {
+            SarifStrategy::FlagsThenAdapter { flags, binary, args } => {
+                assert_eq!(flags, vec!["--outputjson"]);
+                assert_eq!(binary, "builtin://basedpyright");
+                assert!(args.is_empty());
+            }
+            _ => panic!("expected flags then adapter strategy"),
+        }
+    }
+
+    #[test]
+    fn builtin_basedpyright_adapter_converts_json_to_sarif() {
+        let input = br#"{
+  "generalDiagnostics": [
+    {
+      "file": "test.py",
+      "severity": "error",
+      "message": "Type error",
+      "rule": "reportGeneralTypeIssues",
+      "range": {
+        "start": {"line": 0, "character": 1},
+        "end": {"line": 0, "character": 5}
+      }
+    }
+  ]
+}"#;
+        let bytes =
+            adapt_basedpyright_json_to_sarif(input).expect("basedpyright conversion should work");
+        let value: Value = serde_json::from_slice(&bytes).expect("SARIF should be valid json");
+        let runs = value
+            .get("runs")
+            .and_then(Value::as_array)
+            .expect("runs should exist");
+        assert_eq!(runs.len(), 1);
+        let driver_name = runs[0]
+            .get("tool")
+            .and_then(|v| v.get("driver"))
+            .and_then(|v| v.get("name"))
+            .and_then(Value::as_str)
+            .expect("tool.driver.name");
+        assert_eq!(driver_name, "basedpyright");
     }
 
     #[test]
