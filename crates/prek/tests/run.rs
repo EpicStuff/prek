@@ -167,9 +167,7 @@ fn run_sarif_with_config_adapter() -> Result<()> {
                 language: system
                 pass_filenames: false
                 always_run: true
-                sarif:
-                  type: adapter
-                  binary: cat
+                sarif: cat
     "#});
 
     cmd_snapshot!(

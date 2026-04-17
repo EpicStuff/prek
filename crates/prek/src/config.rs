@@ -640,8 +640,7 @@ impl HookOptions {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case", tag = "type")]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub(crate) enum SarifConfig {
     /// Add these arguments to the hook command to request SARIF output.
@@ -649,9 +648,44 @@ pub(crate) enum SarifConfig {
     /// Run an external adapter binary to transform hook output into SARIF.
     Adapter {
         binary: String,
-        #[serde(default)]
         args: Vec<String>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum SarifConfigWire {
+    String(String),
+    List(Vec<String>),
+}
+
+impl<'de> Deserialize<'de> for SarifConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        let wire = SarifConfigWire::deserialize(deserializer)?;
+        let tokens = match wire {
+            SarifConfigWire::List(tokens) => tokens,
+            SarifConfigWire::String(value) => shlex::split(&value)
+                .ok_or_else(|| D::Error::custom("Invalid shell-style string in `sarif`"))?,
+        };
+
+        let (first, rest) = tokens
+            .split_first()
+            .ok_or_else(|| D::Error::custom("`sarif` must not be empty"))?;
+
+        if first.starts_with('-') {
+            Ok(Self::Flags { args: tokens })
+        } else {
+            Ok(Self::Adapter {
+                binary: first.clone(),
+                args: rest.to_vec(),
+            })
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -1542,6 +1576,91 @@ mod tests {
             msg.contains("glob"),
             "error should mention glob issues: {msg}"
         );
+    }
+
+    #[test]
+    fn sarif_string_with_flags_parses_to_flags_tokens() {
+        #[derive(Debug, Deserialize)]
+        struct Wrapper {
+            sarif: SarifConfig,
+        }
+
+        let parsed: Wrapper = serde_saphyr::from_str(indoc::indoc! {r#"
+            sarif: --output-format sarif --path "out file.sarif"
+        "#})
+        .expect("sarif flags should parse");
+
+        assert!(matches!(
+            parsed.sarif,
+            SarifConfig::Flags { args }
+                if args
+                    == vec![
+                        "--output-format",
+                        "sarif",
+                        "--path",
+                        "out file.sarif"
+                    ]
+        ));
+    }
+
+    #[test]
+    fn sarif_string_with_binary_parses_to_adapter() {
+        #[derive(Debug, Deserialize)]
+        struct Wrapper {
+            sarif: SarifConfig,
+        }
+
+        let parsed: Wrapper = serde_saphyr::from_str(indoc::indoc! {r#"
+            sarif: "cat --pretty"
+        "#})
+        .expect("sarif adapter should parse");
+
+        assert!(matches!(
+            parsed.sarif,
+            SarifConfig::Adapter { binary, args } if binary == "cat" && args == vec!["--pretty"]
+        ));
+    }
+
+    #[test]
+    fn sarif_list_parses_by_first_token_rule() {
+        #[derive(Debug, Deserialize)]
+        struct Wrapper {
+            sarif: SarifConfig,
+        }
+
+        let flags: Wrapper = serde_saphyr::from_str(indoc::indoc! {r#"
+            sarif: ["--output-format", "sarif"]
+        "#})
+        .expect("sarif flags list should parse");
+        assert!(matches!(
+            flags.sarif,
+            SarifConfig::Flags { args } if args == vec!["--output-format", "sarif"]
+        ));
+
+        let adapter: Wrapper = serde_saphyr::from_str(indoc::indoc! {r#"
+            sarif: ["cat", "--pretty"]
+        "#})
+        .expect("sarif adapter list should parse");
+        assert!(matches!(
+            adapter.sarif,
+            SarifConfig::Adapter { binary, args } if binary == "cat" && args == vec!["--pretty"]
+        ));
+    }
+
+    #[test]
+    fn sarif_object_form_is_rejected() {
+        #[derive(Debug, Deserialize)]
+        struct Wrapper {
+            sarif: SarifConfig,
+        }
+
+        let err = serde_saphyr::from_str::<Wrapper>(indoc::indoc! {r#"
+            sarif:
+              type: flags
+              args: ["--output-format", "sarif"]
+        "#})
+        .expect_err("sarif object form should not parse");
+        assert!(err.to_string().contains("data did not match any variant"));
     }
 
     #[test]
