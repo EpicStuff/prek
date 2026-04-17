@@ -681,6 +681,18 @@ async fn run_hooks(
                 })?;
             } else {
                 for result in &group_results {
+                    let stderr_output = result.stderr.trim_ascii();
+                    if !stderr_output.is_empty() {
+                        reporter.suspend(|| {
+                            let mut stderr = printer.stderr();
+                            let text = String::from_utf8_lossy(stderr_output);
+                            for line in text.lines() {
+                                writeln!(stderr, "{line}")?;
+                            }
+                            Ok::<(), anyhow::Error>(())
+                        })?;
+                    }
+
                     if !result.stdout.trim_ascii().is_empty()
                         && let Err(err) = sarif_report.push_json(&result.stdout)
                     {
