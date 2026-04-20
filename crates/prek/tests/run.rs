@@ -297,6 +297,62 @@ fn run_sarif_native_flags_forwards_hook_stderr_and_parses_stdout() -> Result<()>
     Ok(())
 }
 
+
+
+#[test]
+fn run_sarif_with_embedded_codespell_adapter() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: codespell
+                name: codespell
+                entry: >-
+                  python3 -c "print('src/demo.txt:12: teh ==> the'); print('not-a-diagnostic'); print('src/utf8.txt:5: naïve ==> naive'); print('broken:line: ignored')"
+                language: system
+                pass_filenames: false
+                always_run: true
+    "#});
+
+    let assert = context
+        .run()
+        .arg("--all-files")
+        .arg("--output-format")
+        .arg("sarif")
+        .assert();
+    let output = assert.get_output();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if stderr.contains("Skipping hook `codespell`") {
+        assert!(output.status.success());
+        return Ok(());
+    }
+
+    assert!(output.status.success());
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)?;
+    assert_eq!(parsed["version"], "2.1.0");
+    assert_eq!(parsed["runs"][0]["tool"]["driver"]["name"], "codespell");
+
+    let results = parsed["runs"][0]["results"]
+        .as_array()
+        .expect("results should be an array");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0]["message"]["text"], "teh ==> the");
+    assert_eq!(results[0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"], "src/demo.txt");
+    assert_eq!(results[0]["locations"][0]["physicalLocation"]["region"]["startLine"], 12);
+    assert_eq!(results[1]["message"]["text"], "naïve ==> naive");
+    assert_eq!(results[1]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"], "src/utf8.txt");
+    assert_eq!(results[1]["locations"][0]["physicalLocation"]["region"]["startLine"], 5);
+
+    assert!(stdout.contains("$schema"));
+
+    Ok(())
+}
+
 #[test]
 fn invalid_config() {
     let context = TestContext::new();

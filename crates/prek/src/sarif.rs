@@ -280,6 +280,24 @@ mod tests {
         }
     }
 
+
+
+    #[test]
+    fn adaptor_yaml_nim_binary_uses_embedded_stem() {
+        let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
+            flags: vec![],
+            binary: Some("adaptors/codespell.nim".to_string()),
+            args: vec!["--foo".to_string()],
+        })
+        .expect("nim binary strategy should parse");
+        match strategy {
+            SarifStrategy::Adapter { binary, args } => {
+                assert_eq!(binary, "embedded://codespell");
+                assert_eq!(args, vec!["--foo"]);
+            }
+            _ => panic!("expected adapter strategy"),
+        }
+    }
     #[test]
     fn embedded_ruff_check_uses_native_flags() {
         let strategy = resolve_embedded_strategy("ruff-check")
