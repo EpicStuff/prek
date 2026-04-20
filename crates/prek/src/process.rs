@@ -195,6 +195,20 @@ impl Cmd {
         self.output().await
     }
 
+    /// Capture command output, using PTY mode unless SARIF mode requires strict stdout/stderr split.
+    pub async fn hook_output(&mut self, sarif_mode: bool) -> Result<Output, Error> {
+        if sarif_mode {
+            // SARIF mode uses piped output to keep stdout/stderr separated for parsing.
+            // Force color in the child process so stderr diagnostics (for example Ruff warnings)
+            // retain ANSI styling even when not attached to a TTY.
+            self.inner.env("CLICOLOR_FORCE", "1");
+            self.inner.env("FORCE_COLOR", "1");
+            self.output().await
+        } else {
+            self.pty_output().await
+        }
+    }
+
     #[cfg(not(windows))]
     pub async fn pty_output(&mut self) -> Result<Output, Error> {
         // If color is not used, fallback to piped output.

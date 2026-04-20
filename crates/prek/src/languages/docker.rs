@@ -486,7 +486,7 @@ impl LanguageImpl for Docker {
         let run = async |batch: &[&Path]| {
             // docker run [OPTIONS] IMAGE [COMMAND] [ARG...]
             let mut cmd = Docker::docker_run_cmd(hook.work_dir());
-            let mut output = cmd
+            let output = cmd
                 .current_dir(hook.work_dir())
                 .args(&env_args)
                 .arg("--entrypoint")
@@ -502,9 +502,9 @@ impl LanguageImpl for Docker {
 
             reporter.on_run_progress(progress, batch.len() as u64);
 
-            output.stdout.extend(output.stderr);
             let code = output.status.code().unwrap_or(1);
-            anyhow::Ok((code, output.stdout))
+            let combined_output = crate::languages::collect_hook_output(hook, output);
+            anyhow::Ok((code, combined_output))
         };
 
         let results = run_by_batch(hook, filenames, &entry, run).await?;

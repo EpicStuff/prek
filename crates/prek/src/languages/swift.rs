@@ -192,7 +192,7 @@ impl LanguageImpl for Swift {
         let entry = hook.entry.resolve(Some(&new_path))?;
 
         let run = async |batch: &[&Path]| {
-            let mut output = Cmd::new(&entry[0], "swift hook")
+            let output = Cmd::new(&entry[0], "swift hook")
                 .current_dir(hook.work_dir())
                 .args(&entry[1..])
                 .env(EnvVars::PATH, &new_path)
@@ -201,14 +201,14 @@ impl LanguageImpl for Swift {
                 .args(batch)
                 .check(false)
                 .stdin(Stdio::null())
-                .pty_output()
+                .hook_output(crate::languages::in_sarif_mode(hook))
                 .await?;
 
             reporter.on_run_progress(progress, batch.len() as u64);
 
-            output.stdout.extend(output.stderr);
             let code = output.status.code().unwrap_or(1);
-            anyhow::Ok((code, output.stdout))
+            let combined_output = crate::languages::collect_hook_output(hook, output);
+            anyhow::Ok((code, combined_output))
         };
 
         let results = run_by_batch(hook, filenames, &entry, run).await?;
