@@ -59,7 +59,7 @@ fn resolve_embedded_strategy(hook_id: &str) -> Result<Option<SarifStrategy>> {
         .any(|name| *name == hook_id)
     {
         return Ok(Some(SarifStrategy::Adapter {
-            binary: format!("embedded://{hook_id}"),
+            binary: format!("builtin://{hook_id}"),
             args: vec![],
         }));
     }
@@ -81,7 +81,7 @@ fn strategy_from_adaptor_yaml(adaptor: AdaptorYaml) -> Result<SarifStrategy> {
         if binary.ends_with(".nim")
             && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
         {
-            let binary = format!("embedded://{stem}");
+            let binary = format!("builtin://{stem}");
             if adaptor.flags.is_empty() {
                 return Ok(SarifStrategy::Adapter {
                     binary,
@@ -153,7 +153,7 @@ pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> 
 }
 
 fn materialize_embedded_adaptor(binary: &str) -> Result<String> {
-    let Some(name) = binary.strip_prefix("embedded://") else {
+    let Some(name) = binary.strip_prefix("builtin://") else {
         return Ok(binary.to_string());
     };
 
@@ -276,7 +276,7 @@ mod tests {
         match strategy {
             SarifStrategy::NativeFlagsAndAdapter { flags, binary, args } => {
                 assert_eq!(flags, vec!["--outputjson"]);
-                assert_eq!(binary, "embedded://basedpyright");
+                assert_eq!(binary, "builtin://basedpyright");
                 assert!(args.is_empty());
             }
             _ => panic!("expected native flags and adapter strategy"),
