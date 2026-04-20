@@ -17,6 +17,11 @@ mod embedded {
 pub(crate) enum SarifStrategy {
     NativeFlags(Vec<String>),
     Adapter { binary: String, args: Vec<String> },
+    NativeFlagsAndAdapter {
+        flags: Vec<String>,
+        binary: String,
+        args: Vec<String>,
+    },
 }
 
 /// Resolve SARIF strategy for a hook.
@@ -72,24 +77,39 @@ struct AdaptorYaml {
 }
 
 fn strategy_from_adaptor_yaml(adaptor: AdaptorYaml) -> Result<SarifStrategy> {
-    if !adaptor.flags.is_empty() {
-        return Ok(SarifStrategy::NativeFlags(adaptor.flags));
-    }
     if let Some(binary) = adaptor.binary {
         if binary.ends_with(".nim")
             && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
         {
-            return Ok(SarifStrategy::Adapter {
-                binary: format!("embedded://{stem}"),
+            let binary = format!("embedded://{stem}");
+            if adaptor.flags.is_empty() {
+                return Ok(SarifStrategy::Adapter {
+                    binary,
+                    args: adaptor.args,
+                });
+            }
+            return Ok(SarifStrategy::NativeFlagsAndAdapter {
+                flags: adaptor.flags,
+                binary,
                 args: adaptor.args,
             });
         }
-        return Ok(SarifStrategy::Adapter {
+        if adaptor.flags.is_empty() {
+            return Ok(SarifStrategy::Adapter {
+                binary,
+                args: adaptor.args,
+            });
+        }
+        return Ok(SarifStrategy::NativeFlagsAndAdapter {
+            flags: adaptor.flags,
             binary,
             args: adaptor.args,
         });
     }
-    anyhow::bail!("Adaptor YAML must specify either `flags` or `binary`")
+    if !adaptor.flags.is_empty() {
+        return Ok(SarifStrategy::NativeFlags(adaptor.flags));
+    }
+    anyhow::bail!("Adaptor YAML must specify `flags`, `binary`, or both")
 }
 
 pub(crate) fn with_native_flags(hook: &InstalledHook, flags: &[String]) -> InstalledHook {
@@ -242,6 +262,24 @@ mod tests {
                 assert_eq!(flags, vec!["--output-format", "sarif"]);
             }
             _ => panic!("expected native flags strategy"),
+        }
+    }
+
+    #[test]
+    fn adaptor_yaml_combined_strategy() {
+        let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
+            flags: vec!["--outputjson".to_string()],
+            binary: Some("adaptors/basedpyright.nim".to_string()),
+            args: vec![],
+        })
+        .expect("combined strategy should parse");
+        match strategy {
+            SarifStrategy::NativeFlagsAndAdapter { flags, binary, args } => {
+                assert_eq!(flags, vec!["--outputjson"]);
+                assert_eq!(binary, "embedded://basedpyright");
+                assert!(args.is_empty());
+            }
+            _ => panic!("expected native flags and adapter strategy"),
         }
     }
 
