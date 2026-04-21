@@ -19,4 +19,10 @@ site/
 # profiling flamegraphs
 *.flamegraph.svg
 
-test/
+# stuff
+test/.git/
+test/.ruff_cache/
+
+adaptors/*
+!adaptors/*.nim
+!adaptors/*.yaml

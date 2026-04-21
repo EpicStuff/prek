@@ -1084,7 +1084,7 @@ async fn run_hook(
             };
             if strategy.is_none() {
                 warn_user!(
-                    "Skipping hook `{}` because no SARIF adaptor is configured and no embedded adaptor matched this hook id.",
+                    "Skipping hook `{}` because no SARIF adaptor is configured and no built in adaptor matched this hook id.",
                     hook.id
                 );
                 return Ok(RunResult::from_status(hook, RunStatus::DryRun));

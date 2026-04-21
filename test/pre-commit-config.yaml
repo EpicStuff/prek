@@ -1,0 +1,55 @@
+default_install_hook_types:
+  - pre-commit
+  - pre-push
+
+repos:
+  # - repo: https://github.com/pre-commit/pre-commit-hooks
+  #   rev: v6.0.0
+  #   hooks:
+  #     - id: check-added-large-files
+  #     - id: check-case-conflict
+  #     - id: check-illegal-windows-names
+  #     - id: check-json
+  #     - id: check-merge-conflict
+  #     - id: check-symlinks
+  #     - id: destroyed-symlinks
+  #     - id: end-of-file-fixer
+  #     - id: mixed-line-ending
+  #       args:
+  #         - --fix=lf
+  #     - id: requirements-txt-fixer
+  #     - id: trailing-whitespace
+
+  - repo: https://github.com/DetachHead/basedpyright-pre-commit-mirror
+    rev: v1.13.0 # or whatever the latest version is at the time
+    hooks:
+        - id: basedpyright
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: v2.4.2
+    hooks:
+      - id: codespell
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      - id: ruff-check
+        args:
+          - --config
+          - ruff.toml
+        # sarif: --output-format sarif
+
+  - repo: local
+    hooks:
+      - id: isort
+        name: isort
+        entry: isort
+        language: system
+        require_serial: true
+        args:
+          - --filter-files
+          - --settings-file
+          - isort.cfg
+        types_or:
+          - python
+        # sarif: ../adaptors/isort

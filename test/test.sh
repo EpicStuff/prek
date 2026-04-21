@@ -1,0 +1,1 @@
+../target/debug/prek -c pre-commit-config.yaml --files test.py . --output-format sarif
