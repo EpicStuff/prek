@@ -8,6 +8,7 @@ use crate::cli::reporter::HookRunReporter;
 use crate::config::{BuiltinHook, FilePattern, HookOptions, PassFilenames, Stage};
 use crate::hook::Hook;
 use crate::hooks::pre_commit_hooks;
+use crate::sarif::maybe_render_builtin_output_as_sarif;
 use crate::store::Store;
 
 mod check_illegal_windows_names;
@@ -106,7 +107,11 @@ impl BuiltinHooks {
             Self::TrailingWhitespace => {
                 pre_commit_hooks::fix_trailing_whitespace(hook, filenames).await
             }
-        };
+        }
+        .and_then(|(code, output)| {
+            maybe_render_builtin_output_as_sarif(hook, hook.id.as_str(), filenames, code, output)
+                .map(|output| (code, output))
+        });
         reporter.on_run_complete(progress);
         result
     }
