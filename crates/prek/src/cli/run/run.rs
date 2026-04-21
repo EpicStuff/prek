@@ -1089,7 +1089,9 @@ async fn run_hook(
                 );
                 return Ok(RunResult::from_status(hook, RunStatus::DryRun));
             }
-            if let Some(SarifStrategy::NativeFlags(flags)) = &strategy {
+            if let Some(SarifStrategy::Combined { flags, .. }) = &strategy
+                && !flags.is_empty()
+            {
                 run_hook = with_native_flags(&run_hook, flags);
             }
         }
@@ -1100,8 +1102,12 @@ async fn run_hook(
             .await
             .with_context(|| format!("Failed to run hook `{run_hook}`"))?;
 
-        if let Some(SarifStrategy::Adapter { binary, args }) = strategy {
-            let adapted = run_adapter(&binary, &args, &output)
+        if let Some(SarifStrategy::Combined {
+            adapter: Some(adapter),
+            ..
+        }) = strategy
+        {
+            let adapted = run_adapter(&adapter.binary, &adapter.args, &output)
                 .await
                 .with_context(|| format!("Failed to convert output to SARIF for hook `{hook}`"))?;
             (status, adapted)

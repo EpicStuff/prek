@@ -15,8 +15,16 @@ mod embedded {
 
 #[derive(Debug, Clone)]
 pub(crate) enum SarifStrategy {
-    NativeFlags(Vec<String>),
-    Adapter { binary: String, args: Vec<String> },
+    Combined {
+        flags: Vec<String>,
+        adapter: Option<SarifAdapter>,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SarifAdapter {
+    pub(crate) binary: String,
+    pub(crate) args: Vec<String>,
 }
 
 /// Resolve SARIF strategy for a hook.
@@ -27,10 +35,16 @@ pub(crate) enum SarifStrategy {
 pub(crate) fn resolve_strategy(hook: &Hook) -> Result<Option<SarifStrategy>> {
     if let Some(config) = &hook.sarif {
         return Ok(Some(match config {
-            SarifConfig::Flags { args } => SarifStrategy::NativeFlags(args.clone()),
-            SarifConfig::Adapter { binary, args } => SarifStrategy::Adapter {
-                binary: binary.clone(),
-                args: args.clone(),
+            SarifConfig::Flags { args } => SarifStrategy::Combined {
+                flags: args.clone(),
+                adapter: None,
+            },
+            SarifConfig::Adapter { binary, args } => SarifStrategy::Combined {
+                flags: vec![],
+                adapter: Some(SarifAdapter {
+                    binary: binary.clone(),
+                    args: args.clone(),
+                }),
             },
         }));
     }
@@ -43,19 +57,27 @@ pub(crate) fn resolve_strategy(hook: &Hook) -> Result<Option<SarifStrategy>> {
 }
 
 fn resolve_embedded_strategy(hook_id: &str) -> Result<Option<SarifStrategy>> {
+    let has_embedded_binary = embedded::EMBEDDED_ADAPTOR_NAMES
+        .iter()
+        .any(|name| *name == hook_id);
+
     if let Some(yaml) = embedded::embedded_adaptor_yaml(hook_id) {
         let parsed: AdaptorYaml = serde_saphyr::from_str(yaml)
             .with_context(|| format!("Failed to parse embedded adaptor yaml for `{hook_id}`"))?;
-        return Ok(Some(strategy_from_adaptor_yaml(parsed)?));
+        return Ok(Some(strategy_from_adaptor_yaml(
+            parsed,
+            has_embedded_binary,
+            hook_id,
+        )?));
     }
 
-    if embedded::EMBEDDED_ADAPTOR_NAMES
-        .iter()
-        .any(|name| *name == hook_id)
-    {
-        return Ok(Some(SarifStrategy::Adapter {
-            binary: format!("embedded://{hook_id}"),
-            args: vec![],
+    if has_embedded_binary {
+        return Ok(Some(SarifStrategy::Combined {
+            flags: vec![],
+            adapter: Some(SarifAdapter {
+                binary: format!("embedded://{hook_id}"),
+                args: vec![],
+            }),
         }));
     }
 
@@ -71,25 +93,42 @@ struct AdaptorYaml {
     args: Vec<String>,
 }
 
-fn strategy_from_adaptor_yaml(adaptor: AdaptorYaml) -> Result<SarifStrategy> {
-    if !adaptor.flags.is_empty() {
-        return Ok(SarifStrategy::NativeFlags(adaptor.flags));
-    }
-    if let Some(binary) = adaptor.binary {
-        if binary.ends_with(".nim")
-            && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
-        {
-            return Ok(SarifStrategy::Adapter {
-                binary: format!("embedded://{stem}"),
-                args: adaptor.args,
-            });
-        }
-        return Ok(SarifStrategy::Adapter {
-            binary,
+fn strategy_from_adaptor_yaml(
+    adaptor: AdaptorYaml,
+    has_embedded_binary: bool,
+    hook_id: &str,
+) -> Result<SarifStrategy> {
+    let adapter = if let Some(binary) = adaptor.binary {
+        Some(SarifAdapter {
+            binary: normalize_adapter_binary(binary),
             args: adaptor.args,
-        });
+        })
+    } else if has_embedded_binary {
+        Some(SarifAdapter {
+            binary: format!("embedded://{hook_id}"),
+            args: adaptor.args,
+        })
+    } else {
+        None
+    };
+
+    if adaptor.flags.is_empty() && adapter.is_none() {
+        anyhow::bail!("Adaptor YAML must specify either `flags` or `binary`");
     }
-    anyhow::bail!("Adaptor YAML must specify either `flags` or `binary`")
+
+    Ok(SarifStrategy::Combined {
+        flags: adaptor.flags,
+        adapter,
+    })
+}
+
+fn normalize_adapter_binary(binary: String) -> String {
+    if binary.ends_with(".nim")
+        && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
+    {
+        return format!("embedded://{stem}");
+    }
+    binary
 }
 
 pub(crate) fn with_native_flags(hook: &InstalledHook, flags: &[String]) -> InstalledHook {

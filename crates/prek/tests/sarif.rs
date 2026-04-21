@@ -15,14 +15,21 @@ fn push_json_accepts_multiple_sarif_documents() {
 
 #[test]
 fn adaptor_yaml_flags_strategy() {
-    let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
-        flags: vec!["--output-format".to_string(), "sarif".to_string()],
-        binary: None,
-        args: vec![],
-    })
+    let strategy = strategy_from_adaptor_yaml(
+        AdaptorYaml {
+            flags: vec!["--output-format".to_string(), "sarif".to_string()],
+            binary: None,
+            args: vec![],
+        },
+        false,
+        "ruff-check",
+    )
     .expect("flags strategy should parse");
     match strategy {
-        SarifStrategy::NativeFlags(flags) => {
+        SarifStrategy::Combined {
+            flags,
+            adapter: None,
+        } => {
             assert_eq!(flags, vec!["--output-format", "sarif"]);
         }
         _ => panic!("expected native flags strategy"),
@@ -31,14 +38,24 @@ fn adaptor_yaml_flags_strategy() {
 
 #[test]
 fn adaptor_yaml_binary_strategy() {
-    let strategy = strategy_from_adaptor_yaml(AdaptorYaml {
-        flags: vec![],
-        binary: Some("adaptors/ruff-check".to_string()),
-        args: vec!["--foo".to_string()],
-    })
+    let strategy = strategy_from_adaptor_yaml(
+        AdaptorYaml {
+            flags: vec![],
+            binary: Some("adaptors/ruff-check".to_string()),
+            args: vec!["--foo".to_string()],
+        },
+        false,
+        "ruff-check",
+    )
     .expect("binary strategy should parse");
     match strategy {
-        SarifStrategy::Adapter { binary, args } => {
+        SarifStrategy::Combined {
+            flags,
+            adapter: Some(adapter),
+        } => {
+            assert!(flags.is_empty());
+            let binary = adapter.binary;
+            let args = adapter.args;
             assert_eq!(binary, "adaptors/ruff-check");
             assert_eq!(args, vec!["--foo"]);
         }
@@ -47,14 +64,74 @@ fn adaptor_yaml_binary_strategy() {
 }
 
 #[test]
+fn adaptor_yaml_flags_and_implicit_embedded_binary_can_be_combined() {
+    let strategy = strategy_from_adaptor_yaml(
+        AdaptorYaml {
+            flags: vec!["--output-format".to_string(), "sarif".to_string()],
+            binary: None,
+            args: vec![],
+        },
+        true,
+        "basedpyright",
+    )
+    .expect("strategy should parse");
+
+    assert!(matches!(
+        strategy,
+        SarifStrategy::Combined { flags, adapter: Some(adapter) }
+            if flags == vec!["--output-format", "sarif"]
+                && adapter.binary == "embedded://basedpyright"
+                && adapter.args.is_empty()
+    ));
+}
+
+#[test]
+fn adaptor_yaml_rejects_empty_strategy() {
+    let err = strategy_from_adaptor_yaml(
+        AdaptorYaml {
+            flags: vec![],
+            binary: None,
+            args: vec![],
+        },
+        false,
+        "basedpyright",
+    )
+    .expect_err("empty adaptor should fail");
+
+    assert!(err
+        .to_string()
+        .contains("Adaptor YAML must specify either `flags` or `binary`"));
+}
+
+#[test]
 fn embedded_ruff_check_uses_native_flags() {
     let strategy = resolve_embedded_strategy("ruff-check")
         .expect("strategy resolution should succeed")
         .expect("strategy should exist");
     match strategy {
-        SarifStrategy::NativeFlags(flags) => {
+        SarifStrategy::Combined {
+            flags,
+            adapter: None,
+        } => {
             assert_eq!(flags, vec!["--output-format", "sarif"]);
         }
         _ => panic!("expected native flags"),
+    }
+}
+
+#[test]
+fn embedded_basedpyright_uses_flags_and_implicit_adapter() {
+    let strategy = resolve_embedded_strategy("basedpyright")
+        .expect("strategy resolution should succeed")
+        .expect("strategy should exist");
+    match strategy {
+        SarifStrategy::Combined {
+            flags,
+            adapter: Some(adapter),
+        } => {
+            assert_eq!(flags, vec!["--outputjson"]);
+            assert_eq!(adapter.binary, "embedded://basedpyright");
+        }
+        other => panic!("unexpected resolution result: {other:?}"),
     }
 }

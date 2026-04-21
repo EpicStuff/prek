@@ -1,2 +1,2 @@
-﻿flags:
-  - --output-format
+flags:
+  - --outputjson

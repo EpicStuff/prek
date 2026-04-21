@@ -162,18 +162,17 @@ fn build_embedded_adaptors(workspace_root: &Path) {
         println!("cargo:rerun-if-changed={}", path.display());
 
         if ext == "nim" {
-            if !nim_available {
-                println!(
-                    "cargo:warning=Skipping Nim adaptor `{}` because `nim` is not available on PATH during build",
-                    path.display()
-                );
-                continue;
-            }
             let mut output_name = stem.clone();
             if cfg!(windows) {
                 output_name.push_str(".exe");
             }
             let output_path = compiled_dir.join(&output_name);
+            if !nim_available {
+                panic!(
+                    "Failed to compile Nim adaptor `{}` because `nim` is not available on PATH during build",
+                    path.display()
+                );
+            }
             compile_nim_adaptor(&path, &output_path);
             entries.push((stem, output_name, output_path));
         } else if ext == "yaml" {
