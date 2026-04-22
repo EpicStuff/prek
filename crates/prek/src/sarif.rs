@@ -288,20 +288,18 @@ fn materialize_embedded_adaptor(binary: &str) -> Result<String> {
     let dir = std::env::temp_dir().join("prek-adaptors");
     fs_err::create_dir_all(&dir).context("Failed to create temporary adaptor directory")?;
     let path = dir.join(file_name);
-    if !path.exists() {
-        fs_err::write(&path, bytes).with_context(|| {
-            format!(
-                "Failed to write embedded adaptor `{name}` to temporary path `{}`",
-                path.display()
-            )
-        })?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = fs_err::metadata(&path)?.permissions();
-            perms.set_mode(0o755);
-            fs_err::set_permissions(&path, perms)?;
-        }
+    fs_err::write(&path, bytes).with_context(|| {
+        format!(
+            "Failed to write embedded adaptor `{name}` to temporary path `{}`",
+            path.display()
+        )
+    })?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs_err::metadata(&path)?.permissions();
+        perms.set_mode(0o755);
+        fs_err::set_permissions(&path, perms)?;
     }
     Ok(path.to_string_lossy().to_string())
 }
