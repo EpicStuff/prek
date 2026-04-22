@@ -171,6 +171,7 @@ fn build_embedded_adaptors(workspace_root: &Path) {
                 .and_then(|stem| stem.to_str())
                 .expect("Adaptor file name should be valid UTF-8")
                 .to_string();
+            let adaptor_name = normalize_adaptor_name(&stem);
             println!("cargo:rerun-if-changed={}", path.display());
 
             if ext == "nim" {
@@ -186,17 +187,22 @@ fn build_embedded_adaptors(workspace_root: &Path) {
                     );
                 }
                 compile_nim_adaptor(&path, &output_path);
-                entries.push((stem, output_name, output_path));
+                entries.push((adaptor_name, output_name, output_path));
             } else if ext == "yaml" {
                 let content = fs::read_to_string(&path).unwrap_or_else(|e| {
                     panic!("Failed to read adaptor yaml `{}`: {e}", path.display())
                 });
-                yaml_entries.push((stem, content));
+                yaml_entries.push((adaptor_name, content));
             }
         }
     }
 
     generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries, &yaml_entries);
+}
+
+
+fn normalize_adaptor_name(name: &str) -> String {
+    name.replace('_', "-")
 }
 
 fn compile_nim_adaptor(source: &Path, output: &Path) {

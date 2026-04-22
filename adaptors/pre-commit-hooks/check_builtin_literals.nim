@@ -1,4 +1,5 @@
 import std/[json, re, strutils]
+import ./utils
 
 let findingRe = re"^(.+):([0-9]+):([0-9]+): replace ([a-zA-Z_][a-zA-Z0-9_]*)\(\) with (.+)$"
 
@@ -27,14 +28,6 @@ proc main() =
           }
         }]
       })
-
-  let sarif = %*{
-    "version": "2.1.0",
-    "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-    "runs": [{"tool": {"driver": {"name": "check-builtin-literals"}}, "results": results}]
-  }
-
-  stdout.write($sarif)
-  stdout.write("\n")
+  writeSarif("check-builtin-literals", results)
 
 main()

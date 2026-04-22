@@ -1,4 +1,5 @@
 import std/[json, re, strutils]
+import ./utils
 
 let findingRe = re"""^(.+) does not match pattern "(.+)"$"""
 
@@ -19,14 +20,6 @@ proc main() =
         "message": {"text": "does not match pattern \"" & matches[1] & "\""},
         "locations": [{"physicalLocation": {"artifactLocation": {"uri": matches[0]}}}]
       })
-
-  let sarif = %*{
-    "version": "2.1.0",
-    "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-    "runs": [{"tool": {"driver": {"name": "name-tests-test"}}, "results": results}]
-  }
-
-  stdout.write($sarif)
-  stdout.write("\n")
+  writeSarif("name-tests-test", results)
 
 main()

@@ -1,4 +1,5 @@
 import std/[json, re, strutils]
+import ./utils
 
 let debugStmtRe = re"^(.+):([0-9]+):([0-9]+): ([^ ]+) (imported|called)$"
 let parseFailRe = re"^(.+) - Could not parse ast$"
@@ -37,14 +38,6 @@ proc main() =
           }
         }]
       })
-
-  let sarif = %*{
-    "version": "2.1.0",
-    "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
-    "runs": [{"tool": {"driver": {"name": "debug-statements"}}, "results": results}]
-  }
-
-  stdout.write($sarif)
-  stdout.write("\n")
+  writeSarif("debug-statements", results)
 
 main()
