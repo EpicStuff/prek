@@ -204,7 +204,7 @@ fn run_sarif_with_config_adapter() -> Result<()> {
 }
 
 #[test]
-fn run_sarif_skips_hook_without_adapter() -> Result<()> {
+fn run_sarif_runs_hook_without_adapter_and_warns_on_non_sarif_output() -> Result<()> {
     let context = TestContext::new();
     context.init_project();
 
@@ -238,7 +238,7 @@ fn run_sarif_skips_hook_without_adapter() -> Result<()> {
     }
 
     ----- stderr -----
-    warning: Skipping hook `no-sarif` because no SARIF adaptor is configured and no built in adaptor matched this hook id.
+    warning: Failed to parse SARIF from hook `no-sarif`: expected value at line 1 column 1
     "#
     );
 
@@ -292,6 +292,156 @@ fn run_sarif_native_flags_forwards_hook_stderr_and_parses_stdout() -> Result<()>
     ----- stderr -----
     hook-warning-on-stderr
     "#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn run_sarif_hook_without_adapter_and_without_output_has_no_warning() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: no-sarif-quiet
+                name: no-sarif-quiet
+                entry: python3 -c "pass"
+                language: system
+                pass_filenames: false
+                always_run: true
+    "#});
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    {
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": []
+    }
+
+    ----- stderr -----
+    "#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn run_builtin_text_mode_keeps_existing_output() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+    let cwd = context.work_dir();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: builtin
+            hooks:
+              - id: trailing-whitespace
+                verbose: true
+    "#});
+    cwd.child("test.py").write_str("print('x')  \n")?;
+    context.git_add(".");
+
+    cmd_snapshot!(context.filters(), context.run().arg("--all-files"), @r#"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    trim trailing whitespace.................................................Failed
+    - hook id: trailing-whitespace
+    - duration: [TIME]
+    - exit code: 1
+    - files were modified by this hook
+
+      Fixing test.py
+
+    ----- stderr -----
+    "#);
+
+    Ok(())
+}
+
+#[test]
+fn run_builtin_sarif_produces_parseable_results() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+    let cwd = context.work_dir();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: builtin
+            hooks:
+              - id: trailing-whitespace
+    "#});
+    cwd.child("test.py").write_str("print('x')  \n")?;
+    context.git_add(".");
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+success: false
+exit_code: 1
+----- stdout -----
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "trailing-whitespace",
+          "informationUri": "https://prek.j178.dev/",
+          "rules": [
+            {
+              "id": "trailing-whitespace",
+              "name": "trailing-whitespace",
+              "shortDescription": {
+                "text": "Builtin hook `trailing-whitespace`"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "trailing-whitespace",
+          "level": "error",
+          "message": {
+            "text": "trailing-whitespace reported an issue for `test.py`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "test.py"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+----- stderr -----
+"#
     );
 
     Ok(())

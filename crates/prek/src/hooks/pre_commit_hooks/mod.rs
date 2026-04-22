@@ -4,6 +4,7 @@ use anyhow::Result;
 use tracing::debug;
 
 use crate::hook::Hook;
+use crate::sarif::maybe_render_builtin_output_as_sarif;
 
 mod check_added_large_files;
 mod check_case_conflict;
@@ -91,7 +92,7 @@ impl PreCommitHooks {
 
     pub(crate) async fn run(self, hook: &Hook, filenames: &[&Path]) -> Result<(i32, Vec<u8>)> {
         debug!("Running hook `{}` in fast path", hook.id);
-        match self {
+        let (code, output) = match self {
             Self::CheckAddedLargeFiles => check_added_large_files(hook, filenames).await,
             Self::CheckCaseConflict => check_case_conflict(hook, filenames).await,
             Self::CheckExecutablesHaveShebangs => {
@@ -116,7 +117,9 @@ impl PreCommitHooks {
             Self::DetectPrivateKey => detect_private_key(hook, filenames).await,
             Self::NoCommitToBranch => no_commit_to_branch(hook).await,
             Self::TrailingWhitespace => fix_trailing_whitespace(hook, filenames).await,
-        }
+        }?;
+        let output = maybe_render_builtin_output_as_sarif(hook, &hook.id, filenames, code, output)?;
+        Ok((code, output))
     }
 }
 

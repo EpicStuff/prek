@@ -1,6 +1,8 @@
 use super::{
-    AdaptorYaml, SarifReport, SarifStrategy, resolve_embedded_strategy, strategy_from_adaptor_yaml,
+    AdaptorYaml, SarifReport, SarifStrategy, render_builtin_sarif_run, resolve_embedded_strategy,
+    strategy_from_adaptor_yaml,
 };
+use std::path::Path;
 
 #[test]
 fn push_json_accepts_multiple_sarif_documents() {
@@ -98,9 +100,10 @@ fn adaptor_yaml_rejects_empty_strategy() {
     )
     .expect_err("empty adaptor should fail");
 
-    assert!(err
-        .to_string()
-        .contains("Adaptor YAML must specify either `flags` or `binary`"));
+    assert!(
+        err.to_string()
+            .contains("Adaptor YAML must specify either `flags` or `binary`")
+    );
 }
 
 #[test]
@@ -134,4 +137,21 @@ fn embedded_basedpyright_uses_flags_and_implicit_adapter() {
         }
         other => panic!("unexpected resolution result: {other:?}"),
     }
+}
+
+#[test]
+fn builtin_output_renders_valid_sarif_json() {
+    let file_refs = [Path::new("src/main.rs"), Path::new("README.md")];
+    let output = b"Fixing src/main.rs\n".to_vec();
+    let rendered =
+        render_builtin_sarif_run("trailing-whitespace", &file_refs, 1, &output).expect("sarif");
+    let value: serde_json::Value = serde_json::from_slice(&rendered).expect("valid json");
+    assert_eq!(
+        value["tool"]["driver"]["name"].as_str(),
+        Some("trailing-whitespace")
+    );
+    assert_eq!(
+        value["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"].as_str(),
+        Some("src/main.rs")
+    );
 }
