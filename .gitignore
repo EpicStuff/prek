@@ -26,3 +26,6 @@ test/.ruff_cache/
 adaptors/*
 !adaptors/*.nim
 !adaptors/*.yaml
+!adaptors/*/
+!adaptors/**/*.nim
+!adaptors/**/*.yaml
