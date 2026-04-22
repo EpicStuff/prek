@@ -1,6 +1,9 @@
+use std::collections::BTreeSet;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use prek_consts::env_vars::EnvVars;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
@@ -124,7 +127,9 @@ fn strategy_from_adaptor_yaml(
 
 fn normalize_adapter_binary(binary: String) -> String {
     if binary.ends_with(".nim")
-        && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
+        && let Some(stem) = std::path::Path::new(&binary)
+            .file_stem()
+            .and_then(|s| s.to_str())
     {
         return format!("embedded://{stem}");
     }
@@ -165,6 +170,89 @@ pub(crate) fn with_env_var(hook: &InstalledHook, key: &str, value: &str) -> Inst
             InstalledHook::NoNeedInstall(Arc::new(cloned))
         }
     }
+}
+
+pub(crate) fn in_internal_sarif_mode(hook: &Hook) -> bool {
+    hook.env
+        .get(EnvVars::PREK_INTERNAL__SARIF_MODE)
+        .is_some_and(|value| value == "1")
+}
+
+pub(crate) fn maybe_render_builtin_output_as_sarif(
+    hook: &Hook,
+    hook_id: &str,
+    filenames: &[&Path],
+    exit_code: i32,
+    output: Vec<u8>,
+) -> Result<Vec<u8>> {
+    if !in_internal_sarif_mode(hook) {
+        return Ok(output);
+    }
+    render_builtin_sarif_run(hook_id, filenames, exit_code, &output)
+}
+
+pub(crate) fn render_builtin_sarif_run(
+    hook_id: &str,
+    filenames: &[&Path],
+    exit_code: i32,
+    output: &[u8],
+) -> Result<Vec<u8>> {
+    let mut offending_paths = BTreeSet::new();
+    let output_text = String::from_utf8_lossy(output);
+    for filename in filenames {
+        let display = filename.display().to_string();
+        if output_text.contains(&display) {
+            offending_paths.insert(display);
+        }
+    }
+
+    let mut results = Vec::new();
+    for path in offending_paths {
+        results.push(serde_json::json!({
+            "ruleId": hook_id,
+            "level": "error",
+            "message": {
+                "text": format!("{hook_id} reported an issue for `{path}`")
+            },
+            "locations": [{
+                "physicalLocation": {
+                    "artifactLocation": { "uri": path }
+                }
+            }]
+        }));
+    }
+
+    if results.is_empty() && exit_code != 0 {
+        results.push(serde_json::json!({
+            "ruleId": hook_id,
+            "level": "error",
+            "message": {
+                "text": if output_text.trim().is_empty() {
+                    format!("{hook_id} reported an issue")
+                } else {
+                    output_text.trim().to_string()
+                }
+            }
+        }));
+    }
+
+    let run = serde_json::json!({
+        "tool": {
+            "driver": {
+                "name": hook_id,
+                "informationUri": "https://prek.j178.dev/",
+                "rules": [{
+                    "id": hook_id,
+                    "name": hook_id,
+                    "shortDescription": {
+                        "text": format!("Builtin hook `{hook_id}`")
+                    }
+                }]
+            }
+        },
+        "results": results
+    });
+    Ok(serde_json::to_vec(&run)?)
 }
 
 pub(crate) async fn run_adapter(binary: &str, args: &[String], input: &[u8]) -> Result<Vec<u8>> {

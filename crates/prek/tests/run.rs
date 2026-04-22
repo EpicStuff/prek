@@ -298,6 +298,115 @@ fn run_sarif_native_flags_forwards_hook_stderr_and_parses_stdout() -> Result<()>
 }
 
 #[test]
+fn run_builtin_text_mode_keeps_existing_output() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+    let cwd = context.work_dir();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: builtin
+            hooks:
+              - id: trailing-whitespace
+                verbose: true
+    "#});
+    cwd.child("test.py").write_str("print('x')  \n")?;
+    context.git_add(".");
+
+    cmd_snapshot!(context.filters(), context.run().arg("--all-files"), @r#"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    trim trailing whitespace.................................................Failed
+    - hook id: trailing-whitespace
+    - duration: [TIME]
+    - exit code: 1
+    - files were modified by this hook
+
+      Fixing test.py
+
+    ----- stderr -----
+    "#);
+
+    Ok(())
+}
+
+#[test]
+fn run_builtin_sarif_produces_parseable_results() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+    let cwd = context.work_dir();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: builtin
+            hooks:
+              - id: trailing-whitespace
+    "#});
+    cwd.child("test.py").write_str("print('x')  \n")?;
+    context.git_add(".");
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+success: false
+exit_code: 1
+----- stdout -----
+{
+  "version": "2.1.0",
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "trailing-whitespace",
+          "informationUri": "https://prek.j178.dev/",
+          "rules": [
+            {
+              "id": "trailing-whitespace",
+              "name": "trailing-whitespace",
+              "shortDescription": {
+                "text": "Builtin hook `trailing-whitespace`"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "trailing-whitespace",
+          "level": "error",
+          "message": {
+            "text": "trailing-whitespace reported an issue for `test.py`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "test.py"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+----- stderr -----
+"#
+    );
+
+    Ok(())
+}
+
+#[test]
 fn invalid_config() {
     let context = TestContext::new();
     context.init_project();
