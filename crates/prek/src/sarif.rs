@@ -7,7 +7,7 @@ use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 
 use crate::config::SarifConfig;
-use crate::hook::{Hook, InstalledHook};
+use crate::hook::{Hook, InstalledHook, Repo};
 
 mod embedded {
     include!(concat!(env!("OUT_DIR"), "/embedded_adaptors.rs"));
@@ -15,6 +15,7 @@ mod embedded {
 
 #[derive(Debug, Clone)]
 pub(crate) enum SarifStrategy {
+    Native,
     Combined {
         flags: Vec<String>,
         adapter: Option<SarifAdapter>,
@@ -34,6 +35,10 @@ pub(crate) struct SarifAdapter {
 /// 1. Hook config (`sarif`) - explicit user configuration
 /// 2. Embedded adaptor metadata by hook id
 pub(crate) fn resolve_strategy(hook: &Hook) -> Result<Option<SarifStrategy>> {
+    if matches!(hook.repo(), Repo::Builtin { .. }) {
+        return Ok(Some(SarifStrategy::Native));
+    }
+
     if let Some(config) = &hook.sarif {
         return Ok(Some(match config {
             SarifConfig::Flags { args } => SarifStrategy::Combined {
@@ -125,7 +130,9 @@ fn strategy_from_adaptor_yaml(
 
 fn normalize_adapter_binary(binary: String) -> String {
     if binary.ends_with(".nim")
-        && let Some(stem) = std::path::Path::new(&binary).file_stem().and_then(|s| s.to_str())
+        && let Some(stem) = std::path::Path::new(&binary)
+            .file_stem()
+            .and_then(|s| s.to_str())
     {
         return format!("embedded://{stem}");
     }

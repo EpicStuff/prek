@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::hook::Hook;
 use crate::hooks::pre_commit_hooks::check_json::JsonValue;
 use crate::hooks::run_concurrent_file_checks;
+use crate::hooks::sarif_output::{HookDiagnostic, render_sarif};
 use crate::run::CONCURRENCY;
 
 pub(crate) async fn check_json5(
@@ -15,20 +16,82 @@ pub(crate) async fn check_json5(
     .await
 }
 
+pub(crate) async fn check_json5_sarif(
+    hook: &Hook,
+    filenames: &[&Path],
+) -> anyhow::Result<(i32, Vec<u8>)> {
+    let diagnostics = collect_diagnostics(hook.project().relative_path(), filenames).await?;
+    if diagnostics.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+    let output = render_sarif("prek-check-json5", &hook.id, &diagnostics)?;
+    Ok((1, output))
+}
+
 async fn check_file(file_base: &Path, filename: &Path) -> anyhow::Result<(i32, Vec<u8>)> {
-    let file_path = file_base.join(filename);
-    let content = fs_err::tokio::read_to_string(file_path).await?;
-    if content.is_empty() {
+    let diagnostics = check_file_diagnostics(file_base, filename).await?;
+    if diagnostics.is_empty() {
         return Ok((0, Vec::new()));
     }
 
+    let mut output = Vec::new();
+    for diagnostic in diagnostics {
+        let error_message = format!(
+            "{}: Failed to json5 decode ({})\n",
+            diagnostic.path, diagnostic.message
+        );
+        output.extend(error_message.as_bytes());
+    }
+    Ok((1, output))
+}
+
+async fn collect_diagnostics(
+    file_base: &Path,
+    filenames: &[&Path],
+) -> anyhow::Result<Vec<HookDiagnostic>> {
+    let mut diagnostics = Vec::new();
+    for filename in filenames {
+        diagnostics.extend(check_file_diagnostics(file_base, filename).await?);
+    }
+    Ok(diagnostics)
+}
+
+async fn check_file_diagnostics(
+    file_base: &Path,
+    filename: &Path,
+) -> anyhow::Result<Vec<HookDiagnostic>> {
+    let file_path = file_base.join(filename);
+    let content = fs_err::tokio::read_to_string(file_path).await?;
+    if content.is_empty() {
+        return Ok(Vec::new());
+    }
+
     match json5::from_str::<JsonValue>(&content) {
-        Ok(_) => Ok((0, Vec::new())),
+        Ok(_) => Ok(Vec::new()),
         Err(e) => {
-            let error_message = format!("{}: Failed to json5 decode ({})\n", filename.display(), e);
-            Ok((1, error_message.into_bytes()))
+            let (line, column) = parse_line_and_column(&e.to_string());
+            let diagnostic =
+                HookDiagnostic::new("prek/check-json5/parse-error", filename, e.to_string())
+                    .with_location(line, column);
+            Ok(vec![diagnostic])
         }
     }
+}
+
+fn parse_line_and_column(message: &str) -> (Option<u64>, Option<u64>) {
+    let Some((line, column)) = message
+        .lines()
+        .find_map(|line| line.trim().split_once(':'))
+        .and_then(|(line, column)| {
+            let line = line.parse::<u64>().ok()?;
+            let column = column.parse::<u64>().ok()?;
+            Some((line, column))
+        })
+    else {
+        return (None, None);
+    };
+
+    (Some(line), Some(column))
 }
 
 #[cfg(test)]

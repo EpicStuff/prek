@@ -6,7 +6,7 @@ use prek_identify::tags;
 
 use crate::cli::reporter::HookRunReporter;
 use crate::config::{BuiltinHook, FilePattern, HookOptions, PassFilenames, Stage};
-use crate::hook::Hook;
+use crate::hook::InstalledHook;
 use crate::hooks::pre_commit_hooks;
 use crate::store::Store;
 
@@ -57,10 +57,11 @@ impl BuiltinHooks {
     pub(crate) async fn run(
         self,
         _store: &Store,
-        hook: &Hook,
+        hook: &InstalledHook,
         filenames: &[&Path],
         reporter: &HookRunReporter,
     ) -> Result<(i32, Vec<u8>)> {
+        let sarif_mode = crate::languages::in_sarif_mode(hook);
         let progress = reporter.on_run_start(hook, filenames.len());
         let result = match self {
             Self::CheckAddedLargeFiles => {
@@ -73,8 +74,20 @@ impl BuiltinHooks {
             Self::CheckIllegalWindowsNames => Ok(
                 check_illegal_windows_names::check_illegal_windows_names(hook, filenames),
             ),
-            Self::CheckJson => pre_commit_hooks::check_json(hook, filenames).await,
-            Self::CheckJson5 => check_json5::check_json5(hook, filenames).await,
+            Self::CheckJson => {
+                if sarif_mode {
+                    pre_commit_hooks::check_json_sarif(hook, filenames).await
+                } else {
+                    pre_commit_hooks::check_json(hook, filenames).await
+                }
+            }
+            Self::CheckJson5 => {
+                if sarif_mode {
+                    check_json5::check_json5_sarif(hook, filenames).await
+                } else {
+                    check_json5::check_json5(hook, filenames).await
+                }
+            }
             Self::CheckMergeConflict => {
                 pre_commit_hooks::check_merge_conflict(hook, filenames).await
             }
@@ -108,7 +121,11 @@ impl BuiltinHooks {
             }
         };
         reporter.on_run_complete(progress);
-        result
+        let (code, output) = result?;
+        if sarif_mode && !matches!(self, Self::CheckJson | Self::CheckJson5) {
+            return Ok((code, Vec::new()));
+        }
+        Ok((code, output))
     }
 }
 

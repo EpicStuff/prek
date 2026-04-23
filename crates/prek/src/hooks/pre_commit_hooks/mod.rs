@@ -32,6 +32,7 @@ pub(crate) use check_added_large_files::check_added_large_files;
 pub(crate) use check_case_conflict::check_case_conflict;
 pub(crate) use check_executables_have_shebangs::check_executables_have_shebangs;
 pub(crate) use check_json::check_json;
+pub(crate) use check_json::check_json_sarif;
 pub(crate) use check_merge_conflict::check_merge_conflict;
 pub(crate) use check_shebang_scripts_are_executable::check_shebang_scripts_are_executable;
 pub(crate) use check_symlinks::check_symlinks;

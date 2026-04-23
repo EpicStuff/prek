@@ -197,7 +197,11 @@ fn build_embedded_adaptors(workspace_root: &Path) {
         }
     }
 
-    generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries, &yaml_entries);
+    generate_embedded_adaptors_rs(
+        &out_dir.join("embedded_adaptors.rs"),
+        &entries,
+        &yaml_entries,
+    );
 }
 
 fn compile_nim_adaptor(source: &Path, output: &Path) {
@@ -241,7 +245,9 @@ fn generate_embedded_adaptors_rs(
     content.push_str("        _ => None,\n");
     content.push_str("    }\n");
     content.push_str("}\n\n");
-    content.push_str("pub(crate) fn embedded_adaptor(name: &str) -> Option<(&'static str, &'static [u8])> {\n");
+    content.push_str(
+        "pub(crate) fn embedded_adaptor(name: &str) -> Option<(&'static str, &'static [u8])> {\n",
+    );
     content.push_str("    match name {\n");
     for (name, output_name, output_path) in entries {
         let _ = writeln!(
