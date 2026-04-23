@@ -1,5 +1,6 @@
 ---
 source: crates/prek/src/config.rs
+assertion_line: 2327
 expression: config
 ---
 Config {
@@ -39,6 +40,7 @@ Config {
                             stages: None,
                             verbose: None,
                             minimum_prek_version: None,
+                            sarif: None,
                             _unused_keys: {},
                         },
                     },
@@ -73,6 +75,7 @@ Config {
                             stages: None,
                             verbose: None,
                             minimum_prek_version: None,
+                            sarif: None,
                             _unused_keys: {},
                         },
                     },

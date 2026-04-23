@@ -1,5 +1,6 @@
 ---
 source: crates/prek/src/config.rs
+assertion_line: 1993
 expression: result
 ---
 Ok(
@@ -37,6 +38,7 @@ Ok(
                                 stages: None,
                                 verbose: None,
                                 minimum_prek_version: None,
+                                sarif: None,
                                 _unused_keys: {},
                             },
                         },
@@ -68,6 +70,7 @@ Ok(
                                 stages: None,
                                 verbose: None,
                                 minimum_prek_version: None,
+                                sarif: None,
                                 _unused_keys: {},
                             },
                         },
@@ -99,6 +102,7 @@ Ok(
                                 stages: None,
                                 verbose: None,
                                 minimum_prek_version: None,
+                                sarif: None,
                                 _unused_keys: {},
                             },
                         },

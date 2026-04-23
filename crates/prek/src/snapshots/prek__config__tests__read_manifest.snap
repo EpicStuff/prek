@@ -1,5 +1,6 @@
 ---
 source: crates/prek/src/config.rs
+assertion_line: 2112
 expression: manifest
 ---
 Manifest {
@@ -41,6 +42,7 @@ Manifest {
                 stages: None,
                 verbose: None,
                 minimum_prek_version: None,
+                sarif: None,
                 _unused_keys: {
                     "minimum_pre_commit_version": String("2.9.2"),
                 },
@@ -83,6 +85,7 @@ Manifest {
                 stages: None,
                 verbose: None,
                 minimum_prek_version: None,
+                sarif: None,
                 _unused_keys: {
                     "minimum_pre_commit_version": String("2.9.2"),
                 },
@@ -128,6 +131,7 @@ Manifest {
                 stages: None,
                 verbose: None,
                 minimum_prek_version: None,
+                sarif: None,
                 _unused_keys: {
                     "minimum_pre_commit_version": String("2.9.2"),
                 },

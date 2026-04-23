@@ -992,6 +992,7 @@ mod tests {
             stages: Stages(manual),
             verbose: true,
             minimum_prek_version: None,
+            sarif: None,
             priority: 42,
         }
         "#);

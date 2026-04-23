@@ -646,10 +646,7 @@ pub(crate) enum SarifConfig {
     /// Add these arguments to the hook command to request SARIF output.
     Flags { args: Vec<String> },
     /// Run an external adapter binary to transform hook output into SARIF.
-    Adapter {
-        binary: String,
-        args: Vec<String>,
-    },
+    Adapter { binary: String, args: Vec<String> },
 }
 
 #[derive(Debug, Deserialize)]

@@ -176,13 +176,18 @@ fn build_embedded_adaptors(workspace_root: &Path) {
             compile_nim_adaptor(&path, &output_path);
             entries.push((stem, output_name, output_path));
         } else if ext == "yaml" {
-            let content = fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("Failed to read adaptor yaml `{}`: {e}", path.display()));
+            let content = fs::read_to_string(&path).unwrap_or_else(|e| {
+                panic!("Failed to read adaptor yaml `{}`: {e}", path.display())
+            });
             yaml_entries.push((stem, content));
         }
     }
 
-    generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries, &yaml_entries);
+    generate_embedded_adaptors_rs(
+        &out_dir.join("embedded_adaptors.rs"),
+        &entries,
+        &yaml_entries,
+    );
 }
 
 fn compile_nim_adaptor(source: &Path, output: &Path) {
@@ -225,7 +230,9 @@ fn generate_embedded_adaptors_rs(
     content.push_str("        _ => None,\n");
     content.push_str("    }\n");
     content.push_str("}\n\n");
-    content.push_str("pub(crate) fn embedded_adaptor(name: &str) -> Option<(&'static str, &'static [u8])> {\n");
+    content.push_str(
+        "pub(crate) fn embedded_adaptor(name: &str) -> Option<(&'static str, &'static [u8])> {\n",
+    );
     content.push_str("    match name {\n");
     for (name, output_name, output_path) in entries {
         let _ = writeln!(

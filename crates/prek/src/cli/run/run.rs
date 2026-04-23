@@ -1111,17 +1111,28 @@ async fn run_hook(
             .await
             .with_context(|| format!("Failed to run hook `{run_hook}`"))?;
 
-        if let Some(SarifStrategy::Combined {
-            adapter: Some(adapter),
-            ..
-        }) = strategy
-        {
-            let adapted = run_adapter(&adapter.binary, &adapter.args, &output)
-                .await
-                .with_context(|| format!("Failed to convert output to SARIF for hook `{hook}`"))?;
-            (status, adapted)
-        } else {
-            (status, output)
+        match strategy {
+            Some(SarifStrategy::Combined {
+                adapter: Some(adapter),
+                ..
+            }) => {
+                let adapted = run_adapter(&adapter.binary, &adapter.args, &output)
+                    .await
+                    .with_context(|| {
+                        format!("Failed to convert output to SARIF for hook `{hook}`")
+                    })?;
+                (status, adapted)
+            }
+            Some(SarifStrategy::NoOutput) => {
+                if !output.trim_ascii().is_empty() {
+                    warn_user!(
+                        "Hook `{}` is configured with a blank SARIF adaptor and should not emit output in SARIF mode.",
+                        hook.id
+                    );
+                }
+                (status, Vec::new())
+            }
+            _ => (status, output),
         }
     };
 

@@ -22,6 +22,7 @@ pub(crate) enum SarifStrategy {
         flags: Vec<String>,
         adapter: Option<SarifAdapter>,
     },
+    NoOutput,
 }
 
 #[derive(Debug, Clone)]
@@ -116,7 +117,7 @@ fn strategy_from_adaptor_yaml(
     };
 
     if adaptor.flags.is_empty() && adapter.is_none() {
-        anyhow::bail!("Adaptor YAML must specify either `flags` or `binary`");
+        return Ok(SarifStrategy::NoOutput);
     }
 
     Ok(SarifStrategy::Combined {
@@ -358,5 +359,5 @@ impl SarifReport {
 }
 
 #[cfg(test)]
-#[path = "../tests/sarif.rs"]
+#[path = "../tests/internal/sarif.rs"]
 mod sarif_tests;

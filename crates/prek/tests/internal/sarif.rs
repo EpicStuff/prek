@@ -88,8 +88,8 @@ fn adaptor_yaml_flags_and_implicit_embedded_binary_can_be_combined() {
 }
 
 #[test]
-fn adaptor_yaml_rejects_empty_strategy() {
-    let err = strategy_from_adaptor_yaml(
+fn adaptor_yaml_accepts_empty_strategy_as_no_output() {
+    let strategy = strategy_from_adaptor_yaml(
         AdaptorYaml {
             flags: vec![],
             binary: None,
@@ -98,12 +98,8 @@ fn adaptor_yaml_rejects_empty_strategy() {
         false,
         "basedpyright",
     )
-    .expect_err("empty adaptor should fail");
-
-    assert!(
-        err.to_string()
-            .contains("Adaptor YAML must specify either `flags` or `binary`")
-    );
+    .expect("empty adaptor should resolve to no-output strategy");
+    assert!(matches!(strategy, SarifStrategy::NoOutput));
 }
 
 #[test]
