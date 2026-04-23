@@ -205,8 +205,6 @@ fn build_embedded_adaptors(workspace_root: &Path) {
 
 #[derive(Debug)]
 struct NimTarget {
-    target: String,
-    host: String,
     os: String,
     arch: String,
     env: String,
@@ -215,8 +213,6 @@ struct NimTarget {
 impl NimTarget {
     fn from_env() -> Self {
         Self {
-            target: env::var("TARGET").unwrap_or_default(),
-            host: env::var("HOST").unwrap_or_default(),
             os: env::var("CARGO_CFG_TARGET_OS").unwrap_or_default(),
             arch: env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default(),
             env: env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default(),
@@ -228,6 +224,10 @@ impl NimTarget {
     }
 
     fn nim_os(&self) -> Option<&'static str> {
+        if self.is_windows_gnu() {
+            return None;
+        }
+
         match self.os.as_str() {
             "windows" => Some("windows"),
             "linux" => Some("linux"),
@@ -245,19 +245,8 @@ impl NimTarget {
         }
     }
 
-    fn mingw_gcc(&self) -> Option<String> {
-        if self.host == self.target || self.os != "windows" || self.env != "gnu" {
-            return None;
-        }
-
-        let prefix = match self.arch.as_str() {
-            "x86_64" => "x86_64-w64-mingw32",
-            "x86" => "i686-w64-mingw32",
-            "aarch64" => "aarch64-w64-mingw32",
-            _ => return None,
-        };
-
-        Some(format!("{prefix}-gcc"))
+    fn is_windows_gnu(&self) -> bool {
+        self.os == "windows" && self.env == "gnu"
     }
 }
 
@@ -278,8 +267,8 @@ fn compile_nim_adaptor(source: &Path, output: &Path, target: &NimTarget) {
     if let Some(cpu) = target.nim_cpu() {
         cmd.arg(format!("--cpu:{cpu}"));
     }
-    if let Some(gcc) = target.mingw_gcc() {
-        cmd.arg(format!("--gcc.exe:{gcc}"));
+    if target.is_windows_gnu() {
+        cmd.arg("-d:mingw");
     }
 
     let status = cmd.arg(source).status();
