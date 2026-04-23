@@ -142,6 +142,7 @@ fn build_embedded_adaptors(workspace_root: &Path) {
     let compiled_dir = out_dir.join("embedded_adaptors");
     fs::create_dir_all(&compiled_dir).expect("Failed to create embedded adaptor output directory");
     let nim_available = Command::new("nim").arg("--version").output().is_ok();
+    let target = NimTarget::from_env();
 
     let mut entries = Vec::<(String, String, PathBuf)>::new();
     let mut yaml_entries = Vec::<(String, String)>::new();
@@ -176,7 +177,7 @@ fn build_embedded_adaptors(workspace_root: &Path) {
 
             if ext == "nim" {
                 let mut output_name = stem.clone();
-                if cfg!(windows) {
+                if target.is_windows() {
                     output_name.push_str(".exe");
                 }
                 let output_path = compiled_dir.join(&output_name);
@@ -186,7 +187,7 @@ fn build_embedded_adaptors(workspace_root: &Path) {
                         path.display()
                     );
                 }
-                compile_nim_adaptor(&path, &output_path);
+                compile_nim_adaptor(&path, &output_path, &target);
                 entries.push((adaptor_name, output_name, output_path));
             } else if ext == "yaml" {
                 let content = fs::read_to_string(&path).unwrap_or_else(|e| {
@@ -201,18 +202,87 @@ fn build_embedded_adaptors(workspace_root: &Path) {
 }
 
 
+
+#[derive(Debug)]
+struct NimTarget {
+    target: String,
+    host: String,
+    os: String,
+    arch: String,
+    env: String,
+}
+
+impl NimTarget {
+    fn from_env() -> Self {
+        Self {
+            target: env::var("TARGET").unwrap_or_default(),
+            host: env::var("HOST").unwrap_or_default(),
+            os: env::var("CARGO_CFG_TARGET_OS").unwrap_or_default(),
+            arch: env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default(),
+            env: env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default(),
+        }
+    }
+
+    fn is_windows(&self) -> bool {
+        self.os == "windows"
+    }
+
+    fn nim_os(&self) -> Option<&'static str> {
+        match self.os.as_str() {
+            "windows" => Some("windows"),
+            "linux" => Some("linux"),
+            "macos" => Some("macosx"),
+            _ => None,
+        }
+    }
+
+    fn nim_cpu(&self) -> Option<&'static str> {
+        match self.arch.as_str() {
+            "x86_64" => Some("amd64"),
+            "x86" => Some("i386"),
+            "aarch64" => Some("arm64"),
+            _ => None,
+        }
+    }
+
+    fn mingw_gcc(&self) -> Option<String> {
+        if self.host == self.target || self.os != "windows" || self.env != "gnu" {
+            return None;
+        }
+
+        let prefix = match self.arch.as_str() {
+            "x86_64" => "x86_64-w64-mingw32",
+            "x86" => "i686-w64-mingw32",
+            "aarch64" => "aarch64-w64-mingw32",
+            _ => return None,
+        };
+
+        Some(format!("{prefix}-gcc"))
+    }
+}
+
 fn normalize_adaptor_name(name: &str) -> String {
     name.replace('_', "-")
 }
 
-fn compile_nim_adaptor(source: &Path, output: &Path) {
-    let status = Command::new("nim")
-        .arg("c")
+fn compile_nim_adaptor(source: &Path, output: &Path, target: &NimTarget) {
+    let mut cmd = Command::new("nim");
+    cmd.arg("c")
         .arg("-d:release")
         .arg("--opt:size")
-        .arg(format!("--out:{}", output.display()))
-        .arg(source)
-        .status();
+        .arg(format!("--out:{}", output.display()));
+
+    if let Some(os) = target.nim_os() {
+        cmd.arg(format!("--os:{os}"));
+    }
+    if let Some(cpu) = target.nim_cpu() {
+        cmd.arg(format!("--cpu:{cpu}"));
+    }
+    if let Some(gcc) = target.mingw_gcc() {
+        cmd.arg(format!("--gcc.exe:{gcc}"));
+    }
+
+    let status = cmd.arg(source).status();
     match status {
         Ok(status) if status.success() => {}
         Ok(status) => panic!(
