@@ -246,6 +246,89 @@ fn run_sarif_skips_hook_without_adapter() -> Result<()> {
 }
 
 #[test]
+fn run_sarif_blank_adaptor_allows_silent_hook() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: no-output
+                name: no-output
+                entry: python3 -c "pass"
+                language: system
+                pass_filenames: false
+                always_run: true
+    "#});
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    {
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": []
+    }
+
+    ----- stderr -----
+    "#
+    );
+
+    Ok(())
+}
+
+#[test]
+fn run_sarif_blank_adaptor_warns_on_output() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: local
+            hooks:
+              - id: no-output
+                name: no-output
+                entry: python3 -c "print('oops')"
+                language: system
+                pass_filenames: false
+                always_run: true
+    "#});
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    {
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": []
+    }
+
+    ----- stderr -----
+    warning: Hook `no-output` is configured with a blank SARIF adaptor and should not emit output in SARIF mode.
+    "#
+    );
+
+    Ok(())
+}
+
+#[test]
 fn run_sarif_native_flags_forwards_hook_stderr_and_parses_stdout() -> Result<()> {
     let context = TestContext::new();
     context.init_project();

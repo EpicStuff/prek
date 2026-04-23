@@ -305,6 +305,10 @@
         "minimum_prek_version": {
           "description": "The minimum version of prek required to run this hook.",
           "type": "string"
+        },
+        "sarif": {
+          "description": "SARIF adapter configuration for this hook.\n\nUsed when running `prek run --output-format sarif`.",
+          "$ref": "#/definitions/SarifConfig"
         }
       },
       "required": [
@@ -398,6 +402,62 @@
         "pre-push",
         "pre-rebase",
         "prepare-commit-msg"
+      ]
+    },
+    "SarifConfig": {
+      "oneOf": [
+        {
+          "description": "Add these arguments to the hook command to request SARIF output.",
+          "type": "object",
+          "properties": {
+            "Flags": {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "args"
+              ]
+            }
+          },
+          "required": [
+            "Flags"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "description": "Run an external adapter binary to transform hook output into SARIF.",
+          "type": "object",
+          "properties": {
+            "Adapter": {
+              "type": "object",
+              "properties": {
+                "binary": {
+                  "type": "string"
+                },
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "binary",
+                "args"
+              ]
+            }
+          },
+          "required": [
+            "Adapter"
+          ],
+          "additionalProperties": false
+        }
       ]
     },
     "LocalRepo": {
@@ -546,6 +606,10 @@
         "minimum_prek_version": {
           "description": "The minimum version of prek required to run this hook.",
           "type": "string"
+        },
+        "sarif": {
+          "description": "SARIF adapter configuration for this hook.\n\nUsed when running `prek run --output-format sarif`.",
+          "$ref": "#/definitions/SarifConfig"
         }
       },
       "required": [
@@ -704,6 +768,10 @@
         "minimum_prek_version": {
           "description": "The minimum version of prek required to run this hook.",
           "type": "string"
+        },
+        "sarif": {
+          "description": "SARIF adapter configuration for this hook.\n\nUsed when running `prek run --output-format sarif`.",
+          "$ref": "#/definitions/SarifConfig"
         }
       },
       "required": [
@@ -867,6 +935,10 @@
         "minimum_prek_version": {
           "description": "The minimum version of prek required to run this hook.",
           "type": "string"
+        },
+        "sarif": {
+          "description": "SARIF adapter configuration for this hook.\n\nUsed when running `prek run --output-format sarif`.",
+          "$ref": "#/definitions/SarifConfig"
         }
       },
       "required": [

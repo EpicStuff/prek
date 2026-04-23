@@ -832,8 +832,6 @@ fn auto_update_with_existing_frozen_comment() -> Result<()> {
       |
     3 |     rev: [COMMIT_SHA]  # frozen: v1.0.0
       |                                                              ^^^^^^ `v1.0.0` resolves to a different commit
-      |
-      = note: pinned commit `[COMMIT_SHA]` is not present in the repo
     ");
 
     insta::with_settings!(
@@ -1017,8 +1015,6 @@ fn auto_update_removes_frozen_comment_when_pinned_commit_has_no_tag() -> Result<
     success: true
     exit_code: 0
     ----- stdout -----
-    [HOME]/test-repos/check-remove-frozen-comment-repo
-      removing frozen comment `v1.1.0`
 
     ----- stderr -----
     warning: [[HOME]/test-repos/check-remove-frozen-comment-repo] frozen ref `v1.1.0` does not match `[COMMIT_SHA]`
@@ -1026,8 +1022,6 @@ fn auto_update_removes_frozen_comment_when_pinned_commit_has_no_tag() -> Result<
       |
     3 |     rev: [COMMIT_SHA]  # frozen: v1.1.0
       |                                                              ^^^^^^ `v1.1.0` resolves to a different commit
-      |
-      = note: no tag points at the pinned commit `[COMMIT_SHA]`
     ");
 
     insta::with_settings!(
@@ -1036,7 +1030,7 @@ fn auto_update_removes_frozen_comment_when_pinned_commit_has_no_tag() -> Result<
             assert_snapshot!(context.read(PRE_COMMIT_CONFIG_YAML), @"
             repos:
               - repo: [HOME]/test-repos/check-remove-frozen-comment-repo
-                rev: [COMMIT_SHA]
+                rev: [COMMIT_SHA]  # frozen: v1.1.0
                 hooks:
                   - id: test-hook
             ");
@@ -1114,8 +1108,6 @@ fn auto_update_warns_for_branch_only_pinned_commit_with_frozen_comment() -> Resu
       |
     3 |     rev: [BRANCH_ONLY_COMMIT]  # frozen: v1.0.0
       |                                                              ^^^^^^ `v1.0.0` resolves to a different commit
-      |
-      = note: pinned commit `[BRANCH_ONLY_COMMIT]` is not present in the repo
     ");
 
     insta::with_settings!(
@@ -1179,8 +1171,6 @@ fn auto_update_warns_for_invalid_pinned_commit_with_frozen_comment() -> Result<(
       |
     3 |     rev: [INVALID_COMMIT]  # frozen: v1.0.0
       |                                                              ^^^^^^ `v1.0.0` resolves to a different commit
-      |
-      = note: pinned commit `[INVALID_COMMIT]` is not present in the repo
     ");
 
     insta::with_settings!(
