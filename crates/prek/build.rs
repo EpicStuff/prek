@@ -255,6 +255,7 @@ fn normalize_adaptor_name(name: &str) -> String {
 }
 
 fn compile_nim_adaptor(source: &Path, output: &Path, target: &NimTarget) {
+    println!("cargo:warning=Compiling Nim adaptor `{}`", source.display());
     let mut cmd = Command::new("nim");
     cmd.arg("c")
         .arg("-d:release")
