@@ -6,6 +6,7 @@ use serde::{Deserialize, Deserializer};
 
 use crate::hook::Hook;
 use crate::hooks::run_concurrent_file_checks;
+use crate::hooks::sarif_output::{HookDiagnostic, render_sarif};
 use crate::run::CONCURRENCY;
 
 #[derive(Debug)]
@@ -25,11 +26,44 @@ pub(crate) async fn check_json(hook: &Hook, filenames: &[&Path]) -> Result<(i32,
     .await
 }
 
+pub(crate) async fn check_json_sarif(hook: &Hook, filenames: &[&Path]) -> Result<(i32, Vec<u8>)> {
+    let diagnostics = collect_diagnostics(hook.project().relative_path(), filenames).await?;
+    if diagnostics.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+    let output = render_sarif("prek-check-json", &hook.id, &diagnostics)?;
+    Ok((1, output))
+}
+
 async fn check_file(file_base: &Path, filename: &Path) -> Result<(i32, Vec<u8>)> {
+    let diagnostics = check_file_diagnostics(file_base, filename).await?;
+    if diagnostics.is_empty() {
+        return Ok((0, Vec::new()));
+    }
+    let mut output = Vec::new();
+    for diagnostic in diagnostics {
+        let error_message = format!(
+            "{}: Failed to json decode ({})\n",
+            diagnostic.path, diagnostic.message
+        );
+        output.extend(error_message.as_bytes());
+    }
+    Ok((1, output))
+}
+
+async fn collect_diagnostics(file_base: &Path, filenames: &[&Path]) -> Result<Vec<HookDiagnostic>> {
+    let mut diagnostics = Vec::new();
+    for filename in filenames {
+        diagnostics.extend(check_file_diagnostics(file_base, filename).await?);
+    }
+    Ok(diagnostics)
+}
+
+async fn check_file_diagnostics(file_base: &Path, filename: &Path) -> Result<Vec<HookDiagnostic>> {
     let file_path = file_base.join(filename);
     let content = fs_err::tokio::read(file_path).await?;
     if content.is_empty() {
-        return Ok((0, Vec::new()));
+        return Ok(Vec::new());
     }
 
     let mut deserializer = serde_json::Deserializer::from_slice(&content);
@@ -40,11 +74,20 @@ async fn check_file(file_base: &Path, filename: &Path) -> Result<(i32, Vec<u8>)>
     match JsonValue::deserialize(deserializer) {
         Ok(json) => {
             carefully_drop_nested_json(json);
-            Ok((0, Vec::new()))
+            Ok(Vec::new())
         }
         Err(e) => {
-            let error_message = format!("{}: Failed to json decode ({e})\n", filename.display());
-            Ok((1, error_message.into_bytes()))
+            let diagnostic =
+                HookDiagnostic::new("prek/check-json/parse-error", filename, e.to_string())
+                    .with_location(
+                        Some(e.line() as u64),
+                        if e.column() == 0 {
+                            None
+                        } else {
+                            Some(e.column() as u64)
+                        },
+                    );
+            Ok(vec![diagnostic])
         }
     }
 }

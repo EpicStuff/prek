@@ -15,6 +15,7 @@ use crate::store::Store;
 mod builtin_hooks;
 mod meta_hooks;
 mod pre_commit_hooks;
+mod sarif_output;
 
 static NO_FAST_PATH: LazyLock<bool> = LazyLock::new(|| EnvVars::is_set(EnvVars::PREK_NO_FAST_PATH));
 

@@ -381,6 +381,85 @@ fn run_sarif_native_flags_forwards_hook_stderr_and_parses_stdout() -> Result<()>
 }
 
 #[test]
+fn run_sarif_builtin_check_json_includes_rule_and_line() -> Result<()> {
+    let context = TestContext::new();
+    context.init_project();
+    context.write_pre_commit_config(indoc::indoc! {r#"
+        repos:
+          - repo: builtin
+            hooks:
+              - id: check-json
+    "#});
+    context
+        .work_dir()
+        .child("bad.json")
+        .write_str("{\n  \"name\": \"prek\",\n  \"name\": \"dup\"\n}\n")?;
+    context.git_add(".");
+
+    cmd_snapshot!(
+        context.filters(),
+        context
+            .run()
+            .arg("--all-files")
+            .arg("--output-format")
+            .arg("sarif"),
+        @r#"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    {
+      "version": "2.1.0",
+      "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+      "runs": [
+        {
+          "tool": {
+            "driver": {
+              "name": "prek-check-json",
+              "rules": [
+                {
+                  "id": "prek/check-json/parse-error",
+                  "name": "prek/check-json/parse-error",
+                  "shortDescription": {
+                    "text": "check-json violation"
+                  }
+                }
+              ]
+            }
+          },
+          "results": [
+            {
+              "ruleId": "prek/check-json/parse-error",
+              "level": "error",
+              "message": {
+                "text": "duplicate key `name` at line 3 column 8"
+              },
+              "locations": [
+                {
+                  "physicalLocation": {
+                    "artifactLocation": {
+                      "uri": "bad.json"
+                    },
+                    "region": {
+                      "startLine": 3,
+                      "startColumn": 8
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+
+    ----- stderr -----
+    "#
+    );
+
+    Ok(())
+}
+
+#[test]
 fn invalid_config() {
     let context = TestContext::new();
     context.init_project();
