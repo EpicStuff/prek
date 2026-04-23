@@ -1,7 +1,7 @@
-import std/[json, re, strutils]
+import std/[json, strutils]
 import ./utils
 
-let findingRe = re"^(.+):([0-9]+):([0-9]+): replace ([a-zA-Z_][a-zA-Z0-9_]*)\(\) with (.+)$"
+const marker = ": replace "
 
 proc main() =
   let input = stdin.readAll()
@@ -12,22 +12,41 @@ proc main() =
     if line.len == 0:
       continue
 
-    var matches: array[5, string]
-    if line.match(findingRe, matches):
-      let lineNum = parseInt(matches[1])
-      let colNum = parseInt(matches[2]) + 1
-      let replacement = matches[4]
+    let markerIndex = line.find(marker)
+    if markerIndex <= 0:
+      continue
+
+    let loc = line[0 ..< markerIndex]
+    let messagePart = line[(markerIndex + 2) .. ^1]
+
+    let locParts = loc.rsplit(':', maxsplit = 2)
+    if locParts.len != 3:
+      continue
+
+    try:
+      let filePath = locParts[0]
+      let lineNum = parseInt(locParts[1])
+      let colNum = parseInt(locParts[2]) + 1
+
+      if not messagePart.startsWith("replace "):
+        continue
+      let replacementText = messagePart[8 .. ^1]
+      let callName = replacementText.split("()", maxsplit = 1)[0]
+
       results.add(%*{
-        "ruleId": "check-builtin-literals/" & matches[3],
+        "ruleId": "check-builtin-literals/" & callName,
         "level": "warning",
-        "message": {"text": "replace " & matches[3] & "() with " & replacement},
+        "message": {"text": messagePart},
         "locations": [{
           "physicalLocation": {
-            "artifactLocation": {"uri": matches[0]},
+            "artifactLocation": {"uri": filePath},
             "region": {"startLine": lineNum, "startColumn": colNum}
           }
         }]
       })
+    except ValueError:
+      discard
+
   writeSarif("check-builtin-literals", results)
 
 main()

@@ -1,7 +1,7 @@
-import std/[json, re, strutils]
+import std/[json, strutils]
 import ./utils
 
-let findingRe = re"""^(.+) does not match pattern "(.+)"$"""
+const suffixPrefix = " does not match pattern \""
 
 proc main() =
   let input = stdin.readAll()
@@ -12,14 +12,20 @@ proc main() =
     if line.len == 0:
       continue
 
-    var matches: array[2, string]
-    if line.match(findingRe, matches):
-      results.add(%*{
-        "ruleId": "name-tests-test/pattern",
-        "level": "warning",
-        "message": {"text": "does not match pattern \"" & matches[1] & "\""},
-        "locations": [{"physicalLocation": {"artifactLocation": {"uri": matches[0]}}}]
-      })
+    let sep = line.find(suffixPrefix)
+    if sep <= 0 or not line.endsWith("\""):
+      continue
+
+    let filePath = line[0 ..< sep]
+    let pattern = line[(sep + suffixPrefix.len) .. ^2]
+
+    results.add(%*{
+      "ruleId": "name-tests-test/pattern",
+      "level": "warning",
+      "message": {"text": "does not match pattern \"" & pattern & "\""},
+      "locations": [{"physicalLocation": {"artifactLocation": {"uri": filePath}}}]
+    })
+
   writeSarif("name-tests-test", results)
 
 main()

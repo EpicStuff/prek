@@ -1,7 +1,7 @@
-import std/[json, re, strutils]
+import std/[json, strutils]
 import ./utils
 
-let findingRe = re"^AWS secret found in (.+): ([^ ]+)$"
+const prefix = "AWS secret found in "
 
 proc main() =
   let input = stdin.readAll()
@@ -9,17 +9,24 @@ proc main() =
 
   for rawLine in input.splitLines():
     let line = rawLine.strip()
-    if line.len == 0:
+    if line.len == 0 or not line.startsWith(prefix):
       continue
 
-    var matches: array[2, string]
-    if line.match(findingRe, matches):
-      results.add(%*{
-        "ruleId": "detect-aws-credentials/aws-secret",
-        "level": "error",
-        "message": {"text": "AWS secret found: " & matches[1]},
-        "locations": [{"physicalLocation": {"artifactLocation": {"uri": matches[0]}}}]
-      })
+    let remainder = line[prefix.len .. ^1]
+    let sep = remainder.find(": ")
+    if sep <= 0:
+      continue
+
+    let filePath = remainder[0 ..< sep]
+    let key = remainder[(sep + 2) .. ^1]
+
+    results.add(%*{
+      "ruleId": "detect-aws-credentials/aws-secret",
+      "level": "error",
+      "message": {"text": "AWS secret found: " & key},
+      "locations": [{"physicalLocation": {"artifactLocation": {"uri": filePath}}}]
+    })
+
   writeSarif("detect-aws-credentials", results)
 
 main()

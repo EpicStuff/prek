@@ -1,8 +1,7 @@
-import std/[json, re, strutils]
+import std/[json, strutils]
 import ./utils
 
-let debugStmtRe = re"^(.+):([0-9]+):([0-9]+): ([^ ]+) (imported|called)$"
-let parseFailRe = re"^(.+) - Could not parse ast$"
+const parseSuffix = " - Could not parse ast"
 
 proc main() =
   let input = stdin.readAll()
@@ -13,31 +12,48 @@ proc main() =
     if line.len == 0:
       continue
 
-    var parseMatches: array[1, string]
-    if line.match(parseFailRe, parseMatches):
+    if line.endsWith(parseSuffix):
+      let filePath = line[0 ..< (line.len - parseSuffix.len)]
       results.add(%*{
         "ruleId": "debug-statements/parse-error",
         "level": "error",
         "message": {"text": "Could not parse ast"},
-        "locations": [{"physicalLocation": {"artifactLocation": {"uri": parseMatches[0]}}}]
+        "locations": [{"physicalLocation": {"artifactLocation": {"uri": filePath}}}]
       })
       continue
 
-    var matches: array[5, string]
-    if line.match(debugStmtRe, matches):
-      let lineNum = parseInt(matches[1])
-      let colNum = parseInt(matches[2]) + 1
+    let messageSep = line.find(": ")
+    if messageSep <= 0:
+      continue
+
+    let loc = line[0 ..< messageSep]
+    let messagePart = line[(messageSep + 2) .. ^1]
+    let locParts = loc.rsplit(':', maxsplit = 2)
+    if locParts.len != 3:
+      continue
+
+    try:
+      let filePath = locParts[0]
+      let lineNum = parseInt(locParts[1])
+      let colNum = parseInt(locParts[2]) + 1
+      let messageTokens = messagePart.split(maxsplit = 1)
+      if messageTokens.len == 0:
+        continue
+
       results.add(%*{
-        "ruleId": "debug-statements/" & matches[3],
+        "ruleId": "debug-statements/" & messageTokens[0],
         "level": "warning",
-        "message": {"text": matches[3] & " " & matches[4]},
+        "message": {"text": messagePart},
         "locations": [{
           "physicalLocation": {
-            "artifactLocation": {"uri": matches[0]},
+            "artifactLocation": {"uri": filePath},
             "region": {"startLine": lineNum, "startColumn": colNum}
           }
         }]
       })
+    except ValueError:
+      discard
+
   writeSarif("debug-statements", results)
 
 main()
