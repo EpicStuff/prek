@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::config::SarifConfig;
 use crate::hook::{Hook, InstalledHook};
+use crate::store::Store;
 
 mod embedded {
     include!(concat!(env!("OUT_DIR"), "/embedded_adaptors.rs"));
@@ -198,8 +199,11 @@ fn materialize_embedded_adaptor(binary: &str) -> Result<String> {
     let (file_name, bytes) = embedded::embedded_adaptor(name)
         .with_context(|| format!("Embedded adaptor `{name}` was not found in this build"))?;
 
-    let dir = std::env::temp_dir().join("prek-adaptors");
-    fs_err::create_dir_all(&dir).context("Failed to create temporary adaptor directory")?;
+    let dir = Store::from_settings()
+        .context("Failed to resolve PREK_HOME for embedded adaptors")?
+        .path()
+        .join("adaptors");
+    ensure_adaptor_dir_version(&dir)?;
     let path = dir.join(file_name);
     if !path.exists() {
         fs_err::write(&path, bytes).with_context(|| {
@@ -217,6 +221,59 @@ fn materialize_embedded_adaptor(binary: &str) -> Result<String> {
         }
     }
     Ok(path.to_string_lossy().to_string())
+}
+
+fn ensure_adaptor_dir_version(dir: &std::path::Path) -> Result<()> {
+    let version_file = dir.join("version.txt");
+    let current_version = adaptor_bundle_hash();
+
+    if let Ok(existing_version) = fs_err::read_to_string(&version_file) {
+        if existing_version.trim() != current_version {
+            fs_err::remove_dir_all(dir).with_context(|| {
+                format!(
+                    "Failed to remove stale embedded adaptor directory at `{}`",
+                    dir.display()
+                )
+            })?;
+        }
+    }
+
+    fs_err::create_dir_all(dir).with_context(|| {
+        format!(
+            "Failed to create embedded adaptor directory at `{}`",
+            dir.display()
+        )
+    })?;
+    fs_err::write(&version_file, format!("{current_version}\n")).with_context(|| {
+        format!(
+            "Failed to write embedded adaptor version file at `{}`",
+            version_file.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn adaptor_bundle_hash() -> String {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
+    let mut hasher = DefaultHasher::new();
+
+    let mut names: Vec<&str> = embedded::EMBEDDED_ADAPTOR_NAMES.to_vec();
+    names.sort_unstable();
+
+    for name in names {
+        name.hash(&mut hasher);
+        if let Some(yaml) = embedded::embedded_adaptor_yaml(name) {
+            yaml.hash(&mut hasher);
+        }
+        if let Some((file_name, bytes)) = embedded::embedded_adaptor(name) {
+            file_name.hash(&mut hasher);
+            bytes.hash(&mut hasher);
+        }
+    }
+
+    hex::encode(hasher.finish().to_le_bytes())
 }
 
 #[derive(Debug, Serialize)]
