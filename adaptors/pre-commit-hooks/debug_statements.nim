@@ -1,7 +1,8 @@
 import std/[json, strutils]
-import ./utils
+import ./[tinyre, utils]
 
-const parseSuffix = " - Could not parse ast"
+let parseFailRe = re"^(.+) - Could not parse ast$"
+let debugStmtRe = re"^(.+):([0-9]+):([0-9]+): ([^ ]+ .+)$"
 
 proc main() =
   let input = stdin.readAll()
@@ -12,47 +13,37 @@ proc main() =
     if line.len == 0:
       continue
 
-    if line.endsWith(parseSuffix):
-      let filePath = line[0 ..< (line.len - parseSuffix.len)]
+    var parseFailMatch: array[2, string]
+    if line.match(parseFailRe, parseFailMatch) == 2:
       results.add(%*{
         "ruleId": "debug-statements/parse-error",
         "level": "error",
         "message": {"text": "Could not parse ast"},
-        "locations": [{"physicalLocation": {"artifactLocation": {"uri": filePath}}}]
+        "locations": [{"physicalLocation": {"artifactLocation": {"uri": parseFailMatch[1]}}}]
       })
       continue
 
-    let messageSep = line.find(": ")
-    if messageSep <= 0:
-      continue
+    var matches: array[5, string]
+    if line.match(debugStmtRe, matches) == 5:
+      try:
+        let lineNum = parseInt(matches[2])
+        let colNum = parseInt(matches[3]) + 1
+        let message = matches[4]
+        let ruleToken = message.split(maxsplit = 1)[0]
 
-    let loc = line[0 ..< messageSep]
-    let messagePart = line[(messageSep + 2) .. ^1]
-    let locParts = loc.rsplit(':', maxsplit = 2)
-    if locParts.len != 3:
-      continue
-
-    try:
-      let filePath = locParts[0]
-      let lineNum = parseInt(locParts[1])
-      let colNum = parseInt(locParts[2]) + 1
-      let messageTokens = messagePart.split(maxsplit = 1)
-      if messageTokens.len == 0:
-        continue
-
-      results.add(%*{
-        "ruleId": "debug-statements/" & messageTokens[0],
-        "level": "warning",
-        "message": {"text": messagePart},
-        "locations": [{
-          "physicalLocation": {
-            "artifactLocation": {"uri": filePath},
-            "region": {"startLine": lineNum, "startColumn": colNum}
-          }
-        }]
-      })
-    except ValueError:
-      discard
+        results.add(%*{
+          "ruleId": "debug-statements/" & ruleToken,
+          "level": "warning",
+          "message": {"text": message},
+          "locations": [{
+            "physicalLocation": {
+              "artifactLocation": {"uri": matches[1]},
+              "region": {"startLine": lineNum, "startColumn": colNum}
+            }
+          }]
+        })
+      except ValueError:
+        discard
 
   writeSarif("debug-statements", results)
 

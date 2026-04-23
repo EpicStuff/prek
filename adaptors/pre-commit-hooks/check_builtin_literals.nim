@@ -1,7 +1,8 @@
 import std/[json, strutils]
-import ./utils
+import ./[tinyre, utils]
 
-const marker = ": replace "
+let findingRe = re"^(.+):([0-9]+):([0-9]+): (replace .+)$"
+let callNameRe = re"^replace ([A-Za-z_][A-Za-z0-9_]*)\(\) with .+$"
 
 proc main() =
   let input = stdin.readAll()
@@ -12,40 +13,30 @@ proc main() =
     if line.len == 0:
       continue
 
-    let markerIndex = line.find(marker)
-    if markerIndex <= 0:
-      continue
+    var matches: array[5, string]
+    if line.match(findingRe, matches) == 5:
+      try:
+        let lineNum = parseInt(matches[2])
+        let colNum = parseInt(matches[3]) + 1
+        let message = matches[4]
 
-    let loc = line[0 ..< markerIndex]
-    let messagePart = line[(markerIndex + 2) .. ^1]
+        var callNameMatch: array[2, string]
+        if message.match(callNameRe, callNameMatch) != 2:
+          continue
 
-    let locParts = loc.rsplit(':', maxsplit = 2)
-    if locParts.len != 3:
-      continue
-
-    try:
-      let filePath = locParts[0]
-      let lineNum = parseInt(locParts[1])
-      let colNum = parseInt(locParts[2]) + 1
-
-      if not messagePart.startsWith("replace "):
-        continue
-      let replacementText = messagePart[8 .. ^1]
-      let callName = replacementText.split("()", maxsplit = 1)[0]
-
-      results.add(%*{
-        "ruleId": "check-builtin-literals/" & callName,
-        "level": "warning",
-        "message": {"text": messagePart},
-        "locations": [{
-          "physicalLocation": {
-            "artifactLocation": {"uri": filePath},
-            "region": {"startLine": lineNum, "startColumn": colNum}
-          }
-        }]
-      })
-    except ValueError:
-      discard
+        results.add(%*{
+          "ruleId": "check-builtin-literals/" & callNameMatch[1],
+          "level": "warning",
+          "message": {"text": message},
+          "locations": [{
+            "physicalLocation": {
+              "artifactLocation": {"uri": matches[1]},
+              "region": {"startLine": lineNum, "startColumn": colNum}
+            }
+          }]
+        })
+      except ValueError:
+        discard
 
   writeSarif("check-builtin-literals", results)
 

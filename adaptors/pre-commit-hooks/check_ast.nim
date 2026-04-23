@@ -1,7 +1,7 @@
 import std/[json, strutils]
-import ./utils
+import ./[tinyre, utils]
 
-const parseMarker = ": failed parsing with "
+let parseFailRe = re"^(.+): failed parsing with (.+):$"
 
 proc main() =
   let input = stdin.readAll()
@@ -9,26 +9,17 @@ proc main() =
 
   for rawLine in input.splitLines():
     let line = rawLine.strip()
-    if line.len == 0 or not line.endsWith(":"):
+    if line.len == 0:
       continue
 
-    let markerIndex = line.find(parseMarker)
-    if markerIndex <= 0:
-      continue
-
-    let filePath = line[0 ..< markerIndex]
-    let parserInfo = line[(markerIndex + parseMarker.len) .. ^2]
-
-    results.add(%*{
-      "ruleId": "check-ast/syntax-error",
-      "level": "error",
-      "message": {"text": "failed parsing with " & parserInfo},
-      "locations": [{
-        "physicalLocation": {
-          "artifactLocation": {"uri": filePath}
-        }
-      }]
-    })
+    var matches: array[3, string]
+    if line.match(parseFailRe, matches) == 3:
+      results.add(%*{
+        "ruleId": "check-ast/syntax-error",
+        "level": "error",
+        "message": {"text": "failed parsing with " & matches[2]},
+        "locations": [{"physicalLocation": {"artifactLocation": {"uri": matches[1]}}}]
+      })
 
   writeSarif("check-ast", results)
 
