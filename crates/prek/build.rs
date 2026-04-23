@@ -145,44 +145,64 @@ fn build_embedded_adaptors(workspace_root: &Path) {
 
     let mut entries = Vec::<(String, String, PathBuf)>::new();
     let mut yaml_entries = Vec::<(String, String)>::new();
-    let read = fs::read_dir(&adaptors_dir).expect("Failed to read adaptors directory");
-    for entry in read.flatten() {
-        let path = entry.path();
-        let ext = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
+    let mut queued = vec![adaptors_dir.clone()];
 
-        let stem = path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .expect("Adaptor file name should be valid UTF-8")
-            .to_string();
-        println!("cargo:rerun-if-changed={}", path.display());
+    while let Some(dir) = queued.pop() {
+        let read = fs::read_dir(&dir).unwrap_or_else(|e| {
+            panic!("Failed to read adaptors directory `{}`: {e}", dir.display())
+        });
 
-        if ext == "nim" {
-            let mut output_name = stem.clone();
-            if cfg!(windows) {
-                output_name.push_str(".exe");
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                queued.push(path.clone());
+                println!("cargo:rerun-if-changed={}", path.display());
+                continue;
             }
-            let output_path = compiled_dir.join(&output_name);
-            if !nim_available {
-                panic!(
-                    "Failed to compile Nim adaptor `{}` because `nim` is not available on PATH during build",
-                    path.display()
-                );
+
+            let ext = path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+
+            let stem = path
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .expect("Adaptor file name should be valid UTF-8")
+                .to_string();
+            let adaptor_name = normalize_adaptor_name(&stem);
+            println!("cargo:rerun-if-changed={}", path.display());
+
+            if ext == "nim" {
+                let mut output_name = stem.clone();
+                if cfg!(windows) {
+                    output_name.push_str(".exe");
+                }
+                let output_path = compiled_dir.join(&output_name);
+                if !nim_available {
+                    panic!(
+                        "Failed to compile Nim adaptor `{}` because `nim` is not available on PATH during build",
+                        path.display()
+                    );
+                }
+                compile_nim_adaptor(&path, &output_path);
+                entries.push((adaptor_name, output_name, output_path));
+            } else if ext == "yaml" {
+                let content = fs::read_to_string(&path).unwrap_or_else(|e| {
+                    panic!("Failed to read adaptor yaml `{}`: {e}", path.display())
+                });
+                yaml_entries.push((adaptor_name, content));
             }
-            compile_nim_adaptor(&path, &output_path);
-            entries.push((stem, output_name, output_path));
-        } else if ext == "yaml" {
-            let content = fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("Failed to read adaptor yaml `{}`: {e}", path.display()));
-            yaml_entries.push((stem, content));
         }
     }
 
     generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries, &yaml_entries);
+}
+
+
+fn normalize_adaptor_name(name: &str) -> String {
+    name.replace('_', "-")
 }
 
 fn compile_nim_adaptor(source: &Path, output: &Path) {
