@@ -25,14 +25,13 @@ use crate::config::{Language, PassFilenames, Stage};
 use crate::fs::CWD;
 use crate::git::GIT_ROOT;
 use crate::hook::{Hook, InstallInfo, InstalledHook, Repo};
-use crate::hooks::check_fast_path;
 use crate::printer::Printer;
 use crate::run::{CONCURRENCY, USE_COLOR};
+use crate::store::Store;
+use crate::workspace::{Project, Workspace};
 use crate::sarif::{
     SarifReport, SarifStrategy, resolve_strategy, run_adapter, with_env_var, with_native_flags,
 };
-use crate::store::Store;
-use crate::workspace::{Project, Workspace};
 use crate::{git, warn_user};
 
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
@@ -648,15 +647,9 @@ async fn run_hooks(
 
         for group_range in PriorityGroupRanges::new(&hooks) {
             let group_hooks = hooks[group_range].to_vec();
-            let mut group_results = run_priority_group(
-                group_hooks,
-                &filter,
-                store,
-                dry_run,
-                output_format,
-                &reporter,
-            )
-            .await?;
+            let mut group_results =
+                run_priority_group(group_hooks, &filter, store, dry_run, output_format, &reporter)
+                    .await?;
 
             // Print results in a stable order (same order as config within the project).
             group_results.sort_unstable_by(|a, b| a.hook.idx.cmp(&b.hook.idx));
@@ -1089,9 +1082,7 @@ async fn run_hook(
                     return Ok(RunResult::from_status(hook, RunStatus::DryRun));
                 }
             };
-            let has_builtin_sarif =
-                matches!(hook.repo(), Repo::Builtin { .. }) || check_fast_path(&hook);
-            if strategy.is_none() && !has_builtin_sarif {
+            if strategy.is_none() {
                 warn_user!(
                     "Skipping hook `{}` because no SARIF adaptor is configured and no built in adaptor matched this hook id.",
                     hook.id
