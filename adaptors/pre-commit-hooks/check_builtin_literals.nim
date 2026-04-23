@@ -1,4 +1,5 @@
-import std/[json, re, strutils]
+import std/[json, strutils]
+import tinyre
 import ./utils
 
 let findingRe = re"^(.+):([0-9]+):([0-9]+): replace ([a-zA-Z_][a-zA-Z0-9_]*)\(\) with (.+)$"
@@ -12,18 +13,18 @@ proc main() =
     if line.len == 0:
       continue
 
-    var matches: array[5, string]
-    if line.match(findingRe, matches):
-      let lineNum = parseInt(matches[1])
-      let colNum = parseInt(matches[2]) + 1
-      let replacement = matches[4]
+    let matches = line.match(findingRe)
+    if matches.len >= 6:
+      let lineNum = parseInt(matches[2])
+      let colNum = parseInt(matches[3]) + 1
+      let replacement = matches[5]
       results.add(%*{
-        "ruleId": "check-builtin-literals/" & matches[3],
+        "ruleId": "check-builtin-literals/" & matches[4],
         "level": "warning",
-        "message": {"text": "replace " & matches[3] & "() with " & replacement},
+        "message": {"text": "replace " & matches[4] & "() with " & replacement},
         "locations": [{
           "physicalLocation": {
-            "artifactLocation": {"uri": matches[0]},
+            "artifactLocation": {"uri": matches[1]},
             "region": {"startLine": lineNum, "startColumn": colNum}
           }
         }]

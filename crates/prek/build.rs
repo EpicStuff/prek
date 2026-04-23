@@ -171,7 +171,7 @@ fn build_embedded_adaptors(workspace_root: &Path) {
                 .and_then(|stem| stem.to_str())
                 .expect("Adaptor file name should be valid UTF-8")
                 .to_string();
-            let adaptor_name = normalize_adaptor_name(&stem);
+            let adaptor_name = stem.replace('_', "-");
             println!("cargo:rerun-if-changed={}", path.display());
 
             if ext == "nim" {
@@ -200,12 +200,8 @@ fn build_embedded_adaptors(workspace_root: &Path) {
     generate_embedded_adaptors_rs(&out_dir.join("embedded_adaptors.rs"), &entries, &yaml_entries);
 }
 
-
-fn normalize_adaptor_name(name: &str) -> String {
-    name.replace('_', "-")
-}
-
 fn compile_nim_adaptor(source: &Path, output: &Path) {
+    eprintln!("Info: Compiling Nim adaptor `{}`", source.display());
     let status = Command::new("nim")
         .arg("c")
         .arg("-d:release")

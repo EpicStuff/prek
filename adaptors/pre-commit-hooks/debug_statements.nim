@@ -1,4 +1,5 @@
-import std/[json, re, strutils]
+import std/[json, strutils]
+import tinyre
 import ./utils
 
 let debugStmtRe = re"^(.+):([0-9]+):([0-9]+): ([^ ]+) (imported|called)$"
@@ -13,27 +14,27 @@ proc main() =
     if line.len == 0:
       continue
 
-    var parseMatches: array[1, string]
-    if line.match(parseFailRe, parseMatches):
+    let parseMatches = line.match(parseFailRe)
+    if parseMatches.len >= 2:
       results.add(%*{
         "ruleId": "debug-statements/parse-error",
         "level": "error",
         "message": {"text": "Could not parse ast"},
-        "locations": [{"physicalLocation": {"artifactLocation": {"uri": parseMatches[0]}}}]
+        "locations": [{"physicalLocation": {"artifactLocation": {"uri": parseMatches[1]}}}]
       })
       continue
 
-    var matches: array[5, string]
-    if line.match(debugStmtRe, matches):
-      let lineNum = parseInt(matches[1])
-      let colNum = parseInt(matches[2]) + 1
+    let matches = line.match(debugStmtRe)
+    if matches.len >= 6:
+      let lineNum = parseInt(matches[2])
+      let colNum = parseInt(matches[3]) + 1
       results.add(%*{
-        "ruleId": "debug-statements/" & matches[3],
+        "ruleId": "debug-statements/" & matches[4],
         "level": "warning",
-        "message": {"text": matches[3] & " " & matches[4]},
+        "message": {"text": matches[4] & " " & matches[5]},
         "locations": [{
           "physicalLocation": {
-            "artifactLocation": {"uri": matches[0]},
+            "artifactLocation": {"uri": matches[1]},
             "region": {"startLine": lineNum, "startColumn": colNum}
           }
         }]
