@@ -1,5 +1,5 @@
-import std/[json, re, strutils]
-import ./utils
+import std/[json, strutils]
+import ./[tinyre, utils]
 
 let parseFailRe = re"^(.+): failed parsing with (.+):$"
 
@@ -12,18 +12,15 @@ proc main() =
     if line.len == 0:
       continue
 
-    var matches: array[2, string]
-    if line.match(parseFailRe, matches):
+    var matches: array[3, string]
+    if line.match(parseFailRe, matches) == 3:
       results.add(%*{
         "ruleId": "check-ast/syntax-error",
         "level": "error",
-        "message": {"text": "failed parsing with " & matches[1]},
-        "locations": [{
-          "physicalLocation": {
-            "artifactLocation": {"uri": matches[0]}
-          }
-        }]
+        "message": {"text": "failed parsing with " & matches[2]},
+        "locations": [{"physicalLocation": {"artifactLocation": {"uri": matches[1]}}}]
       })
+
   writeSarif("check-ast", results)
 
 main()

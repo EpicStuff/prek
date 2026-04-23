@@ -1,7 +1,8 @@
-import std/[json, re, strutils]
-import ./utils
+import std/[json, strutils]
+import ./[tinyre, utils]
 
-let findingRe = re"^(.+):([0-9]+):([0-9]+): replace ([a-zA-Z_][a-zA-Z0-9_]*)\(\) with (.+)$"
+let findingRe = re"^(.+):([0-9]+):([0-9]+): (replace .+)$"
+let callNameRe = re"^replace ([A-Za-z_][A-Za-z0-9_]*)\(\) with .+$"
 
 proc main() =
   let input = stdin.readAll()
@@ -13,21 +14,30 @@ proc main() =
       continue
 
     var matches: array[5, string]
-    if line.match(findingRe, matches):
-      let lineNum = parseInt(matches[1])
-      let colNum = parseInt(matches[2]) + 1
-      let replacement = matches[4]
-      results.add(%*{
-        "ruleId": "check-builtin-literals/" & matches[3],
-        "level": "warning",
-        "message": {"text": "replace " & matches[3] & "() with " & replacement},
-        "locations": [{
-          "physicalLocation": {
-            "artifactLocation": {"uri": matches[0]},
-            "region": {"startLine": lineNum, "startColumn": colNum}
-          }
-        }]
-      })
+    if line.match(findingRe, matches) == 5:
+      try:
+        let lineNum = parseInt(matches[2])
+        let colNum = parseInt(matches[3]) + 1
+        let message = matches[4]
+
+        var callNameMatch: array[2, string]
+        if message.match(callNameRe, callNameMatch) != 2:
+          continue
+
+        results.add(%*{
+          "ruleId": "check-builtin-literals/" & callNameMatch[1],
+          "level": "warning",
+          "message": {"text": message},
+          "locations": [{
+            "physicalLocation": {
+              "artifactLocation": {"uri": matches[1]},
+              "region": {"startLine": lineNum, "startColumn": colNum}
+            }
+          }]
+        })
+      except ValueError:
+        discard
+
   writeSarif("check-builtin-literals", results)
 
 main()
